@@ -84,7 +84,16 @@ class _PickListScreenState extends State<PickListScreen> {
               separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final item = items[index];
-                return _PickCard(item: item);
+                return _PickCard(
+                  item: item,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PickItemPreviewScreen(item: item),
+                      ),
+                    );
+                  },
+                );
               },
             ),
           );
@@ -95,49 +104,86 @@ class _PickListScreenState extends State<PickListScreen> {
 }
 
 class _PickCard extends StatelessWidget {
-  const _PickCard({required this.item});
+  const _PickCard({required this.item, this.onTap});
 
   final PickListItem item;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Row(
-        children: [
-          SizedBox(
-            width: 96,
-            height: 120,
-            child: Image.network(
-              item.imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
-                color: Colors.grey.shade200,
-                alignment: Alignment.center,
-                child: const Icon(Icons.broken_image),
+      child: InkWell(
+        onTap: onTap,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 96,
+              height: 120,
+              child: Image.network(
+                item.imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey.shade200,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.broken_image),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  style: Theme.of(context).textTheme.titleMedium,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '櫃號: ${item.id}',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '櫃號: ${item.id}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PickItemPreviewScreen extends StatelessWidget {
+  const PickItemPreviewScreen({super.key, required this.item});
+
+  final PickListItem item;
+  static const _mockLocalImages = [
+    'temp_images/1293467_0_annotated_gemini_pro.jpg',
+    'temp_images/1293468_0_annotated_gemini_pro.jpg',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(item.title),
+      ),
+      body: PageView.builder(
+        itemCount: _mockLocalImages.length,
+        itemBuilder: (context, index) {
+          final path = _mockLocalImages[index];
+          return InteractiveViewer(
+            child: Center(
+              child: Image.asset(
+                path,
+                fit: BoxFit.contain,
+              ),
+            ),
+          );
+        },
       ),
     );
   }

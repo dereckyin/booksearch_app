@@ -71,6 +71,9 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  assets:
+    - temp_images/
+
 flutter_launcher_icons:
   image_path: "temp_icons/booksearch.png"
   android: true
