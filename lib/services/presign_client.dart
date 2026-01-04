@@ -75,6 +75,8 @@ class PresignClient {
 
   bool get _hasPresignApi => _presignEndpoint.isNotEmpty;
   bool get _hasManifestApi => _manifestEndpoint.isNotEmpty;
+  bool get hasPresignApi => _hasPresignApi;
+  bool get hasManifestApi => _hasManifestApi;
 
   Future<PresignedUpload> getPresignedUrl(String filename) async {
     if (_hasPresignApi) {
@@ -122,4 +124,7 @@ class PresignClient {
     }
   }
 }
+
+
+
 

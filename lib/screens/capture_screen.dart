@@ -21,8 +21,6 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserver {
   CameraController? _cameraController;
   bool _initializing = true;
-  bool _showGrid = true;
-  bool _consented = false;
   bool _busy = false;
   String _status = '準備就緒';
   double _exposureOffset = 0;
@@ -110,10 +108,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
     if (_busy) return;
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
-    if (!_consented) {
-      setState(() => _status = '請先勾選同意上傳');
-      return;
-    }
     setState(() {
       _busy = true;
       _status = '拍攝中…';
@@ -155,7 +149,10 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
       await _loadQueue();
       try {
         final file = File(record.localPath);
-        final upload = await _uploadService.uploadFile(file);
+        final upload = await _uploadService.uploadFile(
+          file,
+          folder: 'user_photos',
+        );
         await _uploadService.sendManifest(
           record: record,
           uploadResult: upload,
@@ -181,8 +178,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
       await _loadQueue();
     }
   }
-
-  void _toggleGrid() => setState(() => _showGrid = !_showGrid);
 
   Future<void> _setFlash(FlashMode mode) async {
     if (_cameraController == null) return;
@@ -278,7 +273,7 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
                       else
                         Container(color: Colors.black12),
                       CaptureOverlay(
-                        showGrid: _showGrid,
+                        showGrid: false,
                         label: _status,
                       ),
                     ],
@@ -308,15 +303,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              FilterChip(
-                label: Text(_consented ? '已同意上傳' : '勾選同意上傳'),
-                selected: _consented,
-                onSelected: (_) => setState(() => _consented = true),
-              ),
-              ActionChip(
-                label: Text(_showGrid ? '九宮格開啟' : '九宮格關閉'),
-                onPressed: _toggleGrid,
-              ),
               DropdownButton<ResolutionPreset>(
                 value: _resolutionPreset,
                 items: ResolutionPreset.values

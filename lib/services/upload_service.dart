@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -28,13 +29,23 @@ class UploadService {
   final Connectivity _connectivity;
   final http.Client _client;
   final Uuid _uuid = const Uuid();
+  static const String _taazeUploadUrl =
+      'https://apiport.taaze.tw/api/v1/upload/photo';
 
   Future<bool> hasConnection() async {
     final results = await _connectivity.checkConnectivity();
     return results.any((r) => r != ConnectivityResult.none);
   }
 
-  Future<UploadResult> uploadFile(File file) async {
+  Future<UploadResult> uploadFile(
+    File file, {
+    String folder = 'user_photos',
+  }) async {
+    // If no presign API is configured, fall back to direct Taaze upload API.
+    if (!_presignClient.hasPresignApi) {
+      return _uploadDirectToTaaze(file, folder: folder);
+    }
+
     final fileName = p.basename(file.path);
     final presigned = await _presignClient.getPresignedUrl(fileName);
 
@@ -57,6 +68,82 @@ class UploadService {
     }
     final eTag = resp.headers['etag'] ?? _uuid.v4();
     return UploadResult(objectKey: presigned.objectKey, eTag: eTag);
+  }
+
+  Future<UploadResult> _uploadDirectToTaaze(
+    File file, {
+    required String folder,
+  }) async {
+    final uri = Uri.parse(_taazeUploadUrl);
+    final fileLen = await file.length();
+    if (fileLen == 0) {
+      throw HttpException('Upload aborted: file is empty');
+    }
+
+    // Debug info to help backend diagnose 422.
+    // ignore: avoid_print
+    print('Uploading file ${file.path} size=$fileLen bytes');
+
+    final multipart = await http.MultipartFile.fromPath(
+      'photoFile', // matches backend example
+      file.path,
+      filename: p.basename(file.path),
+      contentType: MediaType('image', 'jpeg'),
+    );
+
+    final request = http.MultipartRequest('POST', uri)
+      ..files.add(multipart)
+      ..fields['folder'] = folder;
+
+    final streamed = await request.send();
+    final body = await streamed.stream.bytesToString();
+
+    // Debug info for all responses to help diagnose backend parsing.
+    // ignore: avoid_print
+    print('Upload response status=${streamed.statusCode} body=$body');
+
+    if (streamed.statusCode == 422) {
+      try {
+        final json = jsonDecode(body) as Map<String, dynamic>;
+        final detail = json['detail'] as Map<String, dynamic>? ?? {};
+        final fields = detail['received_fields'];
+        final fieldTypes = detail['field_types'];
+        final fieldDetails = detail['field_details'];
+        // Logging to help backend debug field parsing.
+        // ignore: avoid_print
+        print(
+          '422 upload response - fields: $fields; types: $fieldTypes; details: $fieldDetails',
+        );
+        throw HttpException(
+          'Upload 422: fields=$fields types=$fieldTypes details=$fieldDetails',
+        );
+      } catch (_) {
+        throw HttpException('Upload failed with 422: $body');
+      }
+    }
+
+    if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+      throw HttpException('Upload failed with ${streamed.statusCode}: $body');
+    }
+
+    String objectKey = _uuid.v4();
+    String eTag = streamed.headers['etag'] ?? _uuid.v4();
+    try {
+      final json = jsonDecode(body) as Map<String, dynamic>;
+      objectKey = (json['objectKey'] ??
+              json['url'] ??
+              (json['data'] is Map ? (json['data'] as Map)['url'] : null) ??
+              objectKey)
+          .toString();
+      eTag = (json['etag'] ??
+              (json['data'] is Map ? (json['data'] as Map)['etag'] : null) ??
+              eTag)
+          .toString();
+    } catch (_) {
+      // Best-effort parse; keep generated IDs.
+    }
+
+    return UploadResult(objectKey: objectKey, eTag: eTag);
   }
 
   Future<String> _multipartUpload(File file, PresignedUpload presigned) async {
