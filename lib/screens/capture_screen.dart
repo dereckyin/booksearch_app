@@ -10,6 +10,7 @@ import '../services/capture_queue.dart';
 import '../services/preprocessor.dart';
 import '../services/upload_service.dart';
 import '../widgets/capture_overlay.dart';
+import 'pick_list_screen.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
@@ -252,6 +253,15 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
       appBar: AppBar(
         title: const Text('書架拍攝'),
         actions: [
+          IconButton(
+            tooltip: '檢貨單',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PickListScreen()),
+              );
+            },
+            icon: const Icon(Icons.inventory),
+          ),
           IconButton(
             tooltip: '重新嘗試上傳',
             onPressed: _processPendingUploads,
