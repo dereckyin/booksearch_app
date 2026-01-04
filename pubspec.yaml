@@ -19,7 +19,9 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.0-199.0.dev
+  # Keep this on a stable range unless you intentionally use Flutter/Dart dev channel.
+  # Current local Dart (via Flutter) is 3.9.2, so allow 3.9.x.
+  sdk: ">=3.9.0 <4.0.0"
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -38,6 +40,7 @@ dependencies:
   permission_handler: ^11.3.1
   connectivity_plus: ^6.0.5
   http: ^1.2.2
+  http_parser: ^4.0.2
   path_provider: ^2.1.4
   path: ^1.9.0
   image: ^4.2.0

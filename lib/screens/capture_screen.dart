@@ -10,7 +10,6 @@ import '../services/capture_queue.dart';
 import '../services/preprocessor.dart';
 import '../services/upload_service.dart';
 import '../widgets/capture_overlay.dart';
-import 'pick_list_screen.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
@@ -19,13 +18,14 @@ class CaptureScreen extends StatefulWidget {
   State<CaptureScreen> createState() => _CaptureScreenState();
 }
 
-class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserver {
+class _CaptureScreenState extends State<CaptureScreen>
+    with WidgetsBindingObserver {
   CameraController? _cameraController;
   bool _initializing = true;
   bool _busy = false;
   String _status = '準備就緒';
-  double _exposureOffset = 0;
-  ResolutionPreset _resolutionPreset = ResolutionPreset.medium;
+  // Default photo quality: "佳" -> use a higher resolution preset.
+  final ResolutionPreset _resolutionPreset = ResolutionPreset.high;
   FlashMode _flashMode = FlashMode.auto;
   final _uuid = const Uuid();
   final _queue = CaptureQueue.instance;
@@ -79,6 +79,14 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        // iOS Simulator (and some environments) may not have a usable camera device.
+        setState(() {
+          _cameraController = null;
+          _status = '此裝置/模擬器無可用相機（iOS 模擬器常見），請改用實機';
+        });
+        return;
+      }
       final back = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
@@ -186,40 +194,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
     setState(() => _flashMode = mode);
   }
 
-  Future<void> _updateExposure(double value) async {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return;
-    try {
-      await controller.setExposureOffset(value);
-      setState(() => _exposureOffset = value);
-    } catch (_) {
-      // Ignore transient failures when camera is reconfiguring.
-    }
-  }
-
-  Future<void> _updateResolution(ResolutionPreset preset) async {
-    _resolutionPreset = preset;
-    await _cameraController?.dispose();
-    await _initCamera();
-  }
-
-  String _resolutionLabel(ResolutionPreset preset) {
-    switch (preset) {
-      case ResolutionPreset.low:
-        return '低';
-      case ResolutionPreset.medium:
-        return '中';
-      case ResolutionPreset.high:
-        return '高';
-      case ResolutionPreset.veryHigh:
-        return '超高';
-      case ResolutionPreset.ultraHigh:
-        return '極高';
-      case ResolutionPreset.max:
-        return '最大';
-    }
-  }
-
   String _flashLabel(FlashMode mode) {
     switch (mode) {
       case FlashMode.off:
@@ -254,15 +228,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
         title: const Text('書架拍攝'),
         actions: [
           IconButton(
-            tooltip: '檢貨單',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PickListScreen()),
-              );
-            },
-            icon: const Icon(Icons.inventory),
-          ),
-          IconButton(
             tooltip: '重新嘗試上傳',
             onPressed: _processPendingUploads,
             icon: const Icon(Icons.sync),
@@ -282,10 +247,7 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
                         CameraPreview(controller)
                       else
                         Container(color: Colors.black12),
-                      CaptureOverlay(
-                        showGrid: false,
-                        label: _status,
-                      ),
+                      CaptureOverlay(showGrid: false, label: _status),
                     ],
                   ),
                 ),
@@ -313,20 +275,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              DropdownButton<ResolutionPreset>(
-                value: _resolutionPreset,
-                items: ResolutionPreset.values
-                    .map(
-                      (e) => DropdownMenuItem(
-                        value: e,
-                        child: Text(_resolutionLabel(e)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) _updateResolution(value);
-                },
-              ),
               DropdownButton<FlashMode>(
                 value: _flashMode,
                 items: FlashMode.values
@@ -343,19 +291,6 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
               ),
             ],
           ),
-          Row(
-            children: [
-              const Text('曝光'),
-              Expanded(
-                child: Slider(
-                  value: _exposureOffset,
-                  min: -2,
-                  max: 2,
-                  onChanged: (v) => _updateExposure(v),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -363,9 +298,7 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
 
   Widget _buildQueueList() {
     if (_captures.isEmpty) {
-      return const Center(
-        child: Text('尚未拍攝任何照片'),
-      );
+      return const Center(child: Text('尚未拍攝任何照片'));
     }
     return ListView.separated(
       padding: const EdgeInsets.all(12),
@@ -396,4 +329,3 @@ class _CaptureScreenState extends State<CaptureScreen> with WidgetsBindingObserv
     );
   }
 }
-

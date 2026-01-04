@@ -4,27 +4,39 @@ import '../models/pick_list_item.dart';
 import '../services/picklist_service.dart';
 
 class PickListScreen extends StatefulWidget {
-  const PickListScreen({super.key});
+  const PickListScreen({super.key, this.service, this.onCountChanged});
+
+  final PickListService? service;
+  final ValueChanged<int>? onCountChanged;
 
   @override
   State<PickListScreen> createState() => _PickListScreenState();
 }
 
 class _PickListScreenState extends State<PickListScreen> {
-  final _service = PickListService();
+  late final PickListService _service;
   late Future<List<PickListItem>> _future;
 
   @override
   void initState() {
     super.initState();
+    _service = widget.service ?? PickListService();
     _future = _service.fetchPickList();
+    _future
+        .then((items) => widget.onCountChanged?.call(items.length))
+        .catchError((_) {});
   }
 
   Future<void> _reload() async {
     setState(() {
       _future = _service.fetchPickList();
     });
-    await _future;
+    try {
+      final items = await _future;
+      widget.onCountChanged?.call(items.length);
+    } catch (_) {
+      // keep previous count on error
+    }
   }
 
   @override
@@ -55,10 +67,7 @@ class _PickListScreenState extends State<PickListScreen> {
                   const SizedBox(height: 8),
                   Text('${snapshot.error}'),
                   const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: _reload,
-                    child: const Text('重試'),
-                  ),
+                  ElevatedButton(onPressed: _reload, child: const Text('重試')),
                 ],
               ),
             );
@@ -72,7 +81,7 @@ class _PickListScreenState extends State<PickListScreen> {
             child: ListView.separated(
               padding: const EdgeInsets.all(12),
               itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final item = items[index];
                 return _PickCard(item: item);
@@ -102,7 +111,7 @@ class _PickCard extends StatelessWidget {
             child: Image.network(
               item.imageUrl,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
+              errorBuilder: (context, error, stackTrace) => Container(
                 color: Colors.grey.shade200,
                 alignment: Alignment.center,
                 child: const Icon(Icons.broken_image),
@@ -122,7 +131,7 @@ class _PickCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'ID: ${item.id}',
+                  '櫃號: ${item.id}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
@@ -133,4 +142,3 @@ class _PickCard extends StatelessWidget {
     );
   }
 }
-
