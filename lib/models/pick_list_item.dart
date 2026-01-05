@@ -11,3 +11,4 @@ class PickListItem {
   final String title;
   final String imageUrl;
 }
+

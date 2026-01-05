@@ -225,7 +225,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     final controller = _cameraController;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('書架拍攝'),
+        title: const Text('書架管理'),
         actions: [
           IconButton(
             tooltip: '重新嘗試上傳',
@@ -238,21 +238,27 @@ class _CaptureScreenState extends State<CaptureScreen>
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                AspectRatio(
-                  aspectRatio: controller?.value.aspectRatio ?? 3 / 4,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (controller != null && controller.value.isInitialized)
-                        CameraPreview(controller)
-                      else
-                        Container(color: Colors.black12),
-                      CaptureOverlay(showGrid: false, label: _status),
-                    ],
+                Expanded(
+                  flex: 5,
+                  child: AspectRatio(
+                    aspectRatio: controller?.value.aspectRatio ?? 3 / 4,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (controller != null && controller.value.isInitialized)
+                          CameraPreview(controller)
+                        else
+                          Container(color: Colors.black12),
+                        CaptureOverlay(showGrid: false, label: _status),
+                      ],
+                    ),
                   ),
                 ),
                 _buildControls(),
-                Expanded(child: _buildQueueList()),
+                Flexible(
+                  flex: 3,
+                  child: _buildQueueList(),
+                ),
               ],
             ),
       floatingActionButton: FloatingActionButton.large(
