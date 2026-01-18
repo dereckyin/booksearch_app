@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../models/capture_record.dart';
+import '../config/api_config.dart';
 import 'presign_client.dart';
 
 class UploadResult {
@@ -29,8 +30,7 @@ class UploadService {
   final Connectivity _connectivity;
   final http.Client _client;
   final Uuid _uuid = const Uuid();
-  static const String _taazeUploadUrl =
-      'https://apiport.taaze.tw/api/v1/upload/photo';
+  final ApiConfig _apiConfig = ApiConfig();
 
   Future<bool> hasConnection() async {
     final results = await _connectivity.checkConnectivity();
@@ -74,7 +74,7 @@ class UploadService {
     File file, {
     required String folder,
   }) async {
-    final uri = Uri.parse(_taazeUploadUrl);
+    final uri = Uri.parse(_apiConfig.uploadPhotoUrl);
     final fileLen = await file.length();
     if (fileLen == 0) {
       throw HttpException('Upload aborted: file is empty');

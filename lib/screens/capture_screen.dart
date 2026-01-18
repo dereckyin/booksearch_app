@@ -27,6 +27,10 @@ class _CaptureScreenState extends State<CaptureScreen>
   // Default photo quality: "佳" -> use a higher resolution preset.
   final ResolutionPreset _resolutionPreset = ResolutionPreset.high;
   FlashMode _flashMode = FlashMode.auto;
+  double _minZoom = 1.0;
+  double _maxZoom = 1.0;
+  double _currentZoom = 1.0;
+  static const double _zoomStep = 0.2;
   final _uuid = const Uuid();
   final _queue = CaptureQueue.instance;
   final _uploadService = UploadService();
@@ -98,10 +102,18 @@ class _CaptureScreenState extends State<CaptureScreen>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
+      final minZoom = await controller.getMinZoomLevel();
+      final maxZoom = await controller.getMaxZoomLevel();
+      final initialZoom = minZoom.clamp(minZoom, maxZoom).toDouble();
+      await controller.setZoomLevel(initialZoom);
       await controller.setFlashMode(_flashMode);
+      if (!mounted) return;
       setState(() {
         _cameraController = controller;
         _status = '相機已就緒';
+        _minZoom = minZoom;
+        _maxZoom = maxZoom;
+        _currentZoom = initialZoom;
       });
     } catch (e) {
       setState(() => _status = '相機初始化失敗: $e');
@@ -194,6 +206,22 @@ class _CaptureScreenState extends State<CaptureScreen>
     setState(() => _flashMode = mode);
   }
 
+  Future<void> _setZoom(double zoom) async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    final clamped = zoom.clamp(_minZoom, _maxZoom).toDouble();
+    try {
+      await controller.setZoomLevel(clamped);
+      setState(() => _currentZoom = clamped);
+    } catch (e) {
+      setState(() => _status = '縮放設定失敗: $e');
+    }
+  }
+
+  void _stepZoom(double delta) {
+    _setZoom(_currentZoom + delta);
+  }
+
   String _flashLabel(FlashMode mode) {
     switch (mode) {
       case FlashMode.off:
@@ -271,6 +299,8 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   Widget _buildControls() {
+    final canZoom =
+        _cameraController != null && _cameraController!.value.isInitialized;
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
@@ -294,6 +324,41 @@ class _CaptureScreenState extends State<CaptureScreen>
                 onChanged: (value) {
                   if (value != null) _setFlash(value);
                 },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              IconButton(
+                tooltip: '縮小',
+                onPressed: canZoom ? () => _stepZoom(-_zoomStep) : null,
+                icon: const Icon(Icons.zoom_out),
+              ),
+              Expanded(
+                child: Slider(
+                  value: _currentZoom.clamp(_minZoom, _maxZoom).toDouble(),
+                  min: _minZoom,
+                  max: _maxZoom,
+                  divisions: _maxZoom > _minZoom
+                      ? ((_maxZoom - _minZoom) / _zoomStep).round()
+                      : null,
+                  label: '${_currentZoom.toStringAsFixed(1)}x',
+                  onChanged: canZoom ? (v) => _setZoom(v) : null,
+                ),
+              ),
+              IconButton(
+                tooltip: '放大',
+                onPressed: canZoom ? () => _stepZoom(_zoomStep) : null,
+                icon: const Icon(Icons.zoom_in),
+              ),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  '${_currentZoom.toStringAsFixed(1)}x',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
               ),
             ],
           ),

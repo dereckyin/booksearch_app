@@ -1,49 +1,84 @@
-import 'dart:async';
+import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
+import '../config/api_config.dart';
+import '../models/pick_list_main.dart';
 import '../models/pick_list_item.dart';
 
-/// Mock service to fetch pick-list items.
-/// Later replace with real backend call.
+/// Service to fetch pick-list items from backend API.
 class PickListService {
-  Future<List<PickListItem>> fetchPickList() async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return [
-      PickListItem(
-        id: 'O28B23',
-        productId: '11101018929',
-        title: '日本學指南：100本研究日本人文科學領域主題的經典專書',
-        imageUrl:
-            'https://media.taaze.tw/showThumbnail.html?sc=11101018929&height=400&width=310',
+  PickListService({
+    ApiConfig? config,
+    http.Client? client,
+  })  : _config = config ?? ApiConfig(),
+        _client = client ?? http.Client();
+
+  final ApiConfig _config;
+  final http.Client _client;
+
+  Future<List<PickListMain>> fetchPickListMain({
+    required String employeeId,
+  }) async {
+    final mainUri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/main',
+    ).replace(
+      queryParameters: {
+        'employeeNo': employeeId,
+      },
+    );
+
+    final mainResp = await _client.get(mainUri);
+    if (mainResp.statusCode < 200 || mainResp.statusCode >= 300) {
+      throw Exception('Main API ${mainResp.statusCode}: ${mainResp.body}');
+    }
+
+    final mainBody = jsonDecode(mainResp.body);
+    if (mainBody is! List) {
+      throw Exception('Main API unexpected response format');
+    }
+
+    final mainRecords = mainBody
+        .whereType<Map<String, dynamic>>()
+        .map(PickListMain.fromJson)
+        .where((m) => m.sdNo.isNotEmpty)
+        .toList();
+
+    return mainRecords;
+  }
+
+  Future<List<PickListItem>> fetchItemsBySdNo({
+    required String employeeId,
+    required String sdNo,
+    PickListMain? main,
+  }) async {
+    final itemUri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/items',
+    ).replace(
+      queryParameters: {
+        'employeeNo': employeeId,
+        'sd_no': sdNo,
+      },
+    );
+
+    final itemResp = await _client.get(itemUri);
+    if (itemResp.statusCode < 200 || itemResp.statusCode >= 300) {
+      throw Exception('Items $sdNo API ${itemResp.statusCode}: ${itemResp.body}');
+    }
+
+    final itemBody = jsonDecode(itemResp.body);
+    if (itemBody is! List) {
+      throw Exception('Items $sdNo unexpected response format');
+    }
+
+    final items = itemBody.whereType<Map<String, dynamic>>().map(
+      (e) => PickListItem.fromJson(
+        {...e, 'sdNo': sdNo},
+        main: main,
       ),
-      PickListItem(
-        id: 'O28B21',
-        productId: '61100020974',
-        title: '2026《餘生是你 晚點沒關係》語錄日曆 暖杏微光【黃山料】',
-        imageUrl:
-            'https://media.taaze.tw/showThumbnail.html?sc=61100020974&height=400&width=310', // placeholder
-      ),
-      PickListItem(
-        id: 'O28B22',
-        productId: '11101080438',
-        title: '台灣有事，世界有事：處在大國衝突第一線，台灣人必須理解的國際關係與戰略思維',
-        imageUrl:
-            'https://media.taaze.tw/showThumbnail.html?sc=11101080438&height=400&width=310',
-      ),
-      PickListItem(
-        id: 'O28B23',
-        productId: '11101080281',
-        title: '我們只是沒有名片，從來沒有休息過！：她們不只是誰的妻子、誰的母親，探訪這些韓國大姊們真正的「工作」故事。',
-        imageUrl:
-            'https://media.taaze.tw/showThumbnail.html?sc=11101080281&height=400&width=310',
-      ),
-      PickListItem(
-        id: 'O28B23',
-        productId: '11101025252',
-        title: '目的思維：用最小努力，獲得最大成果的方法',
-        imageUrl:
-            'https://media.taaze.tw/showThumbnail.html?sc=11101025252&height=400&width=310',
-      ),
-    ];
+    );
+
+    return items.toList();
   }
 }
 
