@@ -205,49 +205,148 @@ class _PickCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final title = item.title.isNotEmpty
+        ? item.title
+        : (item.titleMain != null && item.titleMain!.isNotEmpty
+            ? item.titleMain!
+            : '未提供品名');
+    final shelfLabel = (item.rkId != null && item.rkId!.isNotEmpty)
+        ? '櫃號: ${item.rkId}'
+        : (item.id.isNotEmpty ? '櫃號: ${item.id}' : '櫃號: -');
+    final productLabel = (item.productId.isNotEmpty)
+        ? '店內碼: ${item.productId}'
+        : (item.orgProdId != null && item.orgProdId!.isNotEmpty
+            ? '店內碼: ${item.orgProdId}'
+            : null);
+    final sdLabel = (item.sdNo != null && item.sdNo!.isNotEmpty)
+        ? '撿貨單：${item.sdNo}'
+        : null;
+    final logcodeLabel = (item.logcode != null && item.logcode!.isNotEmpty)
+        ? '物流條碼: ${item.logcode}'
+        : null;
+    final qtyLabel =
+        item.mustQty != null ? '數量: ${item.mustQty}' : null;
+
+    Future<void> _showPreview(ImageProvider provider) async {
+      await showDialog(
+        context: context,
+        builder: (_) => GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: Container(
+            color: Colors.black.withOpacity(0.9),
+            alignment: Alignment.center,
+            child: InteractiveViewer(
+              child: Image(
+                image: provider,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget _image() {
+      if (item.imageUrl.trim().isEmpty) {
+        return Container(
+          color: Colors.grey.shade200,
+          alignment: Alignment.center,
+          child: const Icon(Icons.image_not_supported),
+        );
+      }
+      final provider = NetworkImage(item.imageUrl);
+      return GestureDetector(
+        onTap: () => _showPreview(provider),
+        child: Image(
+          image: provider,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Container(
+            color: Colors.grey.shade200,
+            alignment: Alignment.center,
+            child: const Icon(Icons.broken_image),
+          ),
+        ),
+      );
+    }
+
+    Widget _mockShelf() {
+      final overlay = item.overlayDataUrl;
+      if (overlay == null || overlay.isEmpty) {
+        return Container(
+          color: Colors.grey.shade200,
+          alignment: Alignment.center,
+          child: const Icon(Icons.image),
+        );
+      }
+      try {
+        final data = UriData.parse(overlay);
+        final bytes = data.contentAsBytes();
+        final provider = MemoryImage(bytes);
+        return GestureDetector(
+          onTap: () => _showPreview(provider),
+          child: Image(
+            image: provider,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Container(
+              color: Colors.grey.shade200,
+              alignment: Alignment.center,
+              child: const Icon(Icons.image),
+            ),
+          ),
+        );
+      } catch (_) {
+        return Container(
+          color: Colors.grey.shade200,
+          alignment: Alignment.center,
+          child: const Icon(Icons.image_not_supported),
+        );
+      }
+    }
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Row(
           children: [
-            SizedBox(
-              width: 96,
-              height: 120,
-              child: Image.network(
-                item.imageUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: Colors.grey.shade200,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.broken_image),
-                ),
-              ),
-            ),
+            SizedBox(width: 96, height: 120, child: _image()),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    item.title,
+                    title,
                     style: Theme.of(context).textTheme.titleMedium,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '櫃號: ${item.id}',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  if (item.sdNo != null)
+                  if (productLabel != null) ...[
+                    const SizedBox(height: 2),
                     Text(
-                      '撿貨單：${item.sdNo}',
+                      productLabel,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                  ],
+                  if (logcodeLabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      logcodeLabel,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if (qtyLabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      qtyLabel,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ],
               ),
             ),
+            const SizedBox(width: 12),
+            SizedBox(width: 96, height: 120, child: _mockShelf()),
           ],
         ),
       ),
@@ -342,16 +441,65 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           }
           return ListView.separated(
             padding: const EdgeInsets.all(12),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemCount: _grouped(items).length,
+            separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-              final item = items[index];
-              return _PickCard(item: item);
+              final entry = _grouped(items)[index];
+              final shelf = entry.key;
+              final shelfItems = entry.value;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    margin: const EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.35),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.inventory_2, size: 18, color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          '櫃號：$shelf',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ...shelfItems.map((item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _PickCard(item: item),
+                      )),
+                ],
+              );
             },
           );
         },
       ),
     );
+  }
+
+  List<MapEntry<String, List<PickListItem>>> _grouped(
+      List<PickListItem> items) {
+    final map = <String, List<PickListItem>>{};
+    for (final item in items) {
+      final key = (item.rkId != null && item.rkId!.isNotEmpty)
+          ? item.rkId!
+          : (item.id.isNotEmpty ? item.id : '未提供櫃號');
+      map.putIfAbsent(key, () => []).add(item);
+    }
+    return map.entries.toList();
   }
 }
 

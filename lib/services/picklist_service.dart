@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/pick_list_main.dart';
 import '../models/pick_list_item.dart';
+import '../models/picker_info.dart';
 
 /// Service to fetch pick-list items from backend API.
 class PickListService {
@@ -16,6 +17,21 @@ class PickListService {
 
   final ApiConfig _config;
   final http.Client _client;
+
+  Future<List<PickerInfo>> fetchPickersToday() async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/pickers/today',
+    );
+    final resp = await _client.get(uri);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('Pickers API ${resp.statusCode}: ${resp.body}');
+    }
+    final body = jsonDecode(resp.body);
+    if (body is! List) {
+      throw Exception('Pickers API unexpected response format');
+    }
+    return body.map(PickerInfo.fromJson).toList();
+  }
 
   Future<List<PickListMain>> fetchPickListMain({
     required String employeeId,
@@ -53,7 +69,7 @@ class PickListService {
     PickListMain? main,
   }) async {
     final itemUri = Uri.parse(
-      '${_config.uploadBase}/api/v1/picking-lists/items',
+      '${_config.uploadBase}/api/v1/picking-lists/items/test',
     ).replace(
       queryParameters: {
         'employeeNo': employeeId,

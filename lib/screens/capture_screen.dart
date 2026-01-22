@@ -12,7 +12,14 @@ import '../services/upload_service.dart';
 import '../widgets/capture_overlay.dart';
 
 class CaptureScreen extends StatefulWidget {
-  const CaptureScreen({super.key});
+  const CaptureScreen({
+    super.key,
+    required this.showUi,
+    required this.onToggleUi,
+  });
+
+  final bool showUi;
+  final VoidCallback onToggleUi;
 
   @override
   State<CaptureScreen> createState() => _CaptureScreenState();
@@ -248,48 +255,52 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
   }
 
+  Widget _AspectCameraPreview(CameraController controller) {
+    final aspect = controller.value.aspectRatio;
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: aspect,
+          child: CameraPreview(controller),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _cameraController;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('書架管理'),
-        actions: [
-          IconButton(
-            tooltip: '重新嘗試上傳',
-            onPressed: _processPendingUploads,
-            icon: const Icon(Icons.sync),
-          ),
-        ],
-      ),
-      body: _initializing
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Expanded(
-                  flex: 5,
-                  child: AspectRatio(
-                    aspectRatio: controller?.value.aspectRatio ?? 3 / 4,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (controller != null && controller.value.isInitialized)
-                          CameraPreview(controller)
-                        else
-                          Container(color: Colors.black12),
-                        CaptureOverlay(showGrid: false, label: _status),
-                      ],
-                    ),
-                  ),
-                ),
-                _buildControls(),
-                Flexible(
-                  flex: 3,
-                  child: _buildQueueList(),
+      appBar: widget.showUi
+          ? AppBar(
+              title: const Text('讀冊撿貨單'),
+              actions: [
+                IconButton(
+                  tooltip: '重新嘗試上傳',
+                  onPressed: _processPendingUploads,
+                  icon: const Icon(Icons.sync),
                 ),
               ],
+            )
+          : null,
+      body: _initializing
+          ? const Center(child: CircularProgressIndicator())
+          : GestureDetector(
+              onTap: widget.onToggleUi,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (controller != null && controller.value.isInitialized)
+                    _AspectCameraPreview(controller)
+                  else
+                    Container(color: Colors.black12),
+                  CaptureOverlay(showGrid: false, label: _status),
+                ],
+              ),
             ),
       floatingActionButton: FloatingActionButton.large(
+        heroTag: 'capture-fab',
         onPressed: _busy ? null : _capture,
         child: _busy
             ? const CircularProgressIndicator()
@@ -298,105 +309,4 @@ class _CaptureScreenState extends State<CaptureScreen>
     );
   }
 
-  Widget _buildControls() {
-    final canZoom =
-        _cameraController != null && _cameraController!.value.isInitialized;
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              DropdownButton<FlashMode>(
-                value: _flashMode,
-                items: FlashMode.values
-                    .map(
-                      (e) => DropdownMenuItem(
-                        value: e,
-                        child: Text(_flashLabel(e)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) _setFlash(value);
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              IconButton(
-                tooltip: '縮小',
-                onPressed: canZoom ? () => _stepZoom(-_zoomStep) : null,
-                icon: const Icon(Icons.zoom_out),
-              ),
-              Expanded(
-                child: Slider(
-                  value: _currentZoom.clamp(_minZoom, _maxZoom).toDouble(),
-                  min: _minZoom,
-                  max: _maxZoom,
-                  divisions: _maxZoom > _minZoom
-                      ? ((_maxZoom - _minZoom) / _zoomStep).round()
-                      : null,
-                  label: '${_currentZoom.toStringAsFixed(1)}x',
-                  onChanged: canZoom ? (v) => _setZoom(v) : null,
-                ),
-              ),
-              IconButton(
-                tooltip: '放大',
-                onPressed: canZoom ? () => _stepZoom(_zoomStep) : null,
-                icon: const Icon(Icons.zoom_in),
-              ),
-              SizedBox(
-                width: 48,
-                child: Text(
-                  '${_currentZoom.toStringAsFixed(1)}x',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQueueList() {
-    if (_captures.isEmpty) {
-      return const Center(child: Text('尚未拍攝任何照片'));
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemBuilder: (context, index) {
-        final item = _captures[index];
-        return ListTile(
-          leading: Image.file(
-            File(item.thumbnailPath),
-            width: 64,
-            height: 64,
-            fit: BoxFit.cover,
-          ),
-          title: Text(item.objectKey ?? item.id),
-          subtitle: Text(
-            '${_statusLabel(item.status)} - ${item.width}x${item.height}',
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: () async {
-              await _queue.delete(item.id);
-              await _loadQueue();
-            },
-          ),
-        );
-      },
-      separatorBuilder: (context, index) => const Divider(height: 1),
-      itemCount: _captures.length,
-    );
-  }
 }

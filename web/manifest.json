@@ -1,11 +1,11 @@
 {
-    "name": "booksearch_app",
-    "short_name": "booksearch_app",
+    "name": "讀冊撿貨單",
+    "short_name": "讀冊撿貨單",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#607d8b",
-    "description": "A new Flutter project.",
+    "description": "讀冊撿貨單",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

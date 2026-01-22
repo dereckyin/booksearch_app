@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../services/picklist_service.dart';
 import 'capture_screen.dart';
 import 'pick_list_screen.dart';
+import 'upload_gallery_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -17,17 +18,12 @@ class _HomeShellState extends State<HomeShell> {
   final _pickListService = PickListService();
   int _pickListCount = 0;
   String? _employeeId;
+  bool _captureUiVisible = false;
+  bool _pickingEmployee = false;
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
-  static const _captureOrientations = [
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ];
-  static const _defaultOrientations = [
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ];
+  static const _uploadTabIndex = 2;
+  static const _defaultOrientations = DeviceOrientation.values;
 
   @override
   void initState() {
@@ -38,9 +34,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _setOrientationForIndex(int index) async {
-    await SystemChrome.setPreferredOrientations(
-      index == _captureTabIndex ? _captureOrientations : _defaultOrientations,
-    );
+    await SystemChrome.setPreferredOrientations(_defaultOrientations);
   }
 
   Future<void> _refreshPickListCount() async {
@@ -67,31 +61,49 @@ class _HomeShellState extends State<HomeShell> {
             onRequestEmployeeId: _promptEmployeeId,
             onCountChanged: (count) => setState(() => _pickListCount = count),
           ),
-          const CaptureScreen(),
+          CaptureScreen(
+            showUi: _captureUiVisible,
+            onToggleUi: () => setState(() {
+              _captureUiVisible = !_captureUiVisible;
+            }),
+          ),
+          UploadGalleryScreen(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) async {
-          setState(() => _index = i);
-          await _setOrientationForIndex(i);
-          if (i == _pickListTabIndex) {
-            await _refreshPickListCount();
-          }
-        },
-        destinations: [
-          NavigationDestination(
-            icon: _buildPickListBadgeIcon(context),
-            selectedIcon: _buildPickListBadgeIcon(context),
-            label: '撿貨單',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.camera_alt_outlined),
-            selectedIcon: Icon(Icons.camera_alt),
-            label: '拍照',
-          ),
-        ],
-      ),
+      bottomNavigationBar: _index == _captureTabIndex && !_captureUiVisible
+          ? null
+          : NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: (i) async {
+                setState(() {
+                  _index = i;
+                  if (i != _captureTabIndex) {
+                    _captureUiVisible = true; // ensure nav/AppBar visible on other tabs
+                  }
+                });
+                await _setOrientationForIndex(i);
+                if (i == _pickListTabIndex) {
+                  await _refreshPickListCount();
+                }
+              },
+              destinations: [
+                NavigationDestination(
+                  icon: _buildPickListBadgeIcon(context),
+                  selectedIcon: _buildPickListBadgeIcon(context),
+                  label: '撿貨單',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.camera_alt_outlined),
+                  selectedIcon: Icon(Icons.camera_alt),
+                  label: '拍照',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.cloud_upload_outlined),
+                  selectedIcon: Icon(Icons.cloud_upload),
+                  label: '上傳圖檔',
+                ),
+              ],
+            ),
     );
   }
 
@@ -134,45 +146,73 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _promptEmployeeId() async {
-    final controller = TextEditingController(text: _employeeId ?? '');
-    String? input = _employeeId;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('請輸入工號'),
-              content: TextField(
-                controller: controller,
-                decoration: const InputDecoration(
-                  hintText: '例如：A12345',
-                ),
-                autofocus: true,
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    final trimmed = controller.text.trim();
-                    if (trimmed.isEmpty) return;
-                    input = trimmed;
-                    Navigator.of(context).pop();
-                  },
-                  child: const Text('確認'),
-                ),
-              ],
-            );
-          },
+    if (_pickingEmployee) return;
+    setState(() => _pickingEmployee = true);
+    try {
+      final pickers = await _pickListService.fetchPickersToday();
+      if (!mounted) return;
+      if (pickers.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('今日沒有可用的撿貨工號')),
         );
-      },
-    );
-    if (!mounted) return;
-    if (input == null || input!.isEmpty) return;
-    setState(() {
-      _employeeId = input;
-    });
-    await _refreshPickListCount();
+        return;
+      }
+      String? selected = _employeeId;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setState) {
+              return AlertDialog(
+                title: const Text('選擇工號'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: pickers.length,
+                    itemBuilder: (context, index) {
+                      final picker = pickers[index];
+                      return RadioListTile<String>(
+                        value: picker.employeeNo,
+                        groupValue: selected,
+                        onChanged: (val) => setState(() => selected = val),
+                        title: Text(picker.display),
+                      );
+                    },
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: selected == null
+                        ? null
+                        : () {
+                            Navigator.of(context).pop();
+                          },
+                    child: const Text('使用此工號'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      if (!mounted) return;
+      if (selected == null || selected?.isEmpty == true) return;
+      setState(() {
+        _employeeId = selected;
+      });
+      await _refreshPickListCount();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('無法取得工號清單: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _pickingEmployee = false);
+      }
+    }
   }
 }
 
