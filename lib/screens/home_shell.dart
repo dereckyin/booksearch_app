@@ -23,6 +23,10 @@ class _HomeShellState extends State<HomeShell> {
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
   static const _uploadTabIndex = 2;
+  static const _captureOrientations = [
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ];
   static const _defaultOrientations = DeviceOrientation.values;
 
   @override
@@ -34,7 +38,11 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _setOrientationForIndex(int index) async {
-    await SystemChrome.setPreferredOrientations(_defaultOrientations);
+    if (index == _captureTabIndex) {
+      await SystemChrome.setPreferredOrientations(_captureOrientations);
+    } else {
+      await SystemChrome.setPreferredOrientations(_defaultOrientations);
+    }
   }
 
   Future<void> _refreshPickListCount() async {
@@ -153,7 +161,7 @@ class _HomeShellState extends State<HomeShell> {
       if (!mounted) return;
       if (pickers.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('今日沒有可用的撿貨工號')),
+          const SnackBar(content: Text('今日沒有可用的撿貨電話號碼')),
         );
         return;
       }
@@ -165,7 +173,7 @@ class _HomeShellState extends State<HomeShell> {
           return StatefulBuilder(
             builder: (context, setState) {
               return AlertDialog(
-                title: const Text('選擇工號'),
+                title: const Text('選擇您的電話號碼'),
                 content: SizedBox(
                   width: double.maxFinite,
                   child: ListView.builder(
@@ -189,7 +197,7 @@ class _HomeShellState extends State<HomeShell> {
                         : () {
                             Navigator.of(context).pop();
                           },
-                    child: const Text('使用此工號'),
+                    child: const Text('使用此電話號碼'),
                   ),
                 ],
               );
@@ -206,7 +214,7 @@ class _HomeShellState extends State<HomeShell> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('無法取得工號清單: $e')),
+        SnackBar(content: Text('無法取得電話號碼清單: $e')),
       );
     } finally {
       if (mounted) {

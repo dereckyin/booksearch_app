@@ -12,6 +12,8 @@ class PickListItem {
     this.logcode,
     this.mustQty,
     this.overlayDataUrl,
+    this.overlayUrl,
+    this.seqNum,
     this.sdNo,
     this.main,
   });
@@ -26,6 +28,8 @@ class PickListItem {
   final String? logcode;
   final num? mustQty;
   final String? overlayDataUrl;
+  final String? overlayUrl;
+  final String? seqNum;
   final String? sdNo;
   final PickListMain? main;
 
@@ -46,15 +50,26 @@ class PickListItem {
     final titleMain = '${json['title_main'] ?? ''}';
     final logcode = '${json['logcode'] ?? json['log_code'] ?? ''}';
     final mustQty = _parseNum(json['must_qty'] ?? json['mustQty']);
-    final overlayDataUrl = '${json['overlay_data_url'] ?? ''}'.trim();
+    String overlayDataUrl = '${json['overlay_data_url'] ?? ''}'.trim();
+    String overlayUrl = '${json['overlay_url'] ?? ''}'.trim();
+    String seqNum = '${json['seq_num'] ?? json['seqno'] ?? json['seqNum'] ?? ''}'.trim();
+
+    final imageMap = json['image'];
+    if (imageMap is Map<String, dynamic>) {
+      overlayUrl = '${imageMap['overlay_url'] ?? overlayUrl}'.trim();
+      overlayDataUrl = '${imageMap['overlay_data_url'] ?? overlayDataUrl}'.trim();
+      seqNum = '${imageMap['seq_num'] ?? imageMap['seqno'] ?? seqNum}'.trim();
+    }
+
     final baseImage =
         '${json['imageUrl'] ?? json['image_url'] ?? ''}'.trim();
+    final productId =
+        '${json['productId'] ?? json['product_id'] ?? json['prod_id'] ?? orgProdId}';
     final imageUrl = baseImage.isNotEmpty
         ? baseImage
         : (orgProdId.isNotEmpty
             ? 'https://media.taaze.tw/showLargeImage.html?sc=$orgProdId&height=170&width=250'
             : '');
-    final productId = '${json['productId'] ?? json['product_id'] ?? orgProdId}';
 
     return PickListItem(
       id: rkId.isNotEmpty ? rkId : '${json['id'] ?? json['code'] ?? sdNo}',
@@ -69,6 +84,8 @@ class PickListItem {
       logcode: logcode.isNotEmpty ? logcode : null,
       mustQty: mustQty,
       overlayDataUrl: overlayDataUrl.isNotEmpty ? overlayDataUrl : null,
+      overlayUrl: overlayUrl.isNotEmpty ? overlayUrl : null,
+      seqNum: seqNum.isNotEmpty ? seqNum : null,
       sdNo: sdNo.isEmpty ? null : sdNo,
       main: main,
     );

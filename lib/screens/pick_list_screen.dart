@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/pick_list_item.dart';
 import '../models/pick_list_main.dart';
 import '../services/picklist_service.dart';
+import '../config/api_config.dart';
 
 class PickListScreen extends StatefulWidget {
   const PickListScreen({
@@ -68,11 +69,11 @@ class _PickListScreenState extends State<PickListScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('請先輸入工號以載入撿貨單'),
+              const Text('請先輸入電話號碼以載入撿貨單'),
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: widget.onRequestEmployeeId,
-                child: const Text('輸入工號'),
+                child: const Text('輸入電話號碼'),
               ),
             ],
           ),
@@ -226,6 +227,8 @@ class _PickCard extends StatelessWidget {
         : null;
     final qtyLabel =
         item.mustQty != null ? '數量: ${item.mustQty}' : null;
+    final seqLabel =
+        (item.seqNum != null && item.seqNum!.isNotEmpty) ? '左至右第: ${item.seqNum}' : null;
 
     Future<void> _showPreview(ImageProvider provider) async {
       await showDialog(
@@ -254,12 +257,26 @@ class _PickCard extends StatelessWidget {
           child: const Icon(Icons.image_not_supported),
         );
       }
-      final provider = NetworkImage(item.imageUrl);
+      final url = item.imageUrl.startsWith('http')
+          ? item.imageUrl
+          : Uri.parse(ApiConfig().uploadBase).resolve(item.imageUrl).toString();
       return GestureDetector(
-        onTap: () => _showPreview(provider),
-        child: Image(
-          image: provider,
+        onTap: () => _showPreview(NetworkImage(url)),
+        child: Image.network(
+          url,
           fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Container(
+              color: Colors.grey.shade200,
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
           errorBuilder: (context, error, stackTrace) => Container(
             color: Colors.grey.shade200,
             alignment: Alignment.center,
@@ -270,37 +287,80 @@ class _PickCard extends StatelessWidget {
     }
 
     Widget _mockShelf() {
-      final overlay = item.overlayDataUrl;
-      if (overlay == null || overlay.isEmpty) {
+      ImageProvider? provider;
+      String? urlString;
+      if (item.overlayUrl != null && item.overlayUrl!.isNotEmpty) {
+        final base = ApiConfig().uploadBase;
+        final overlay = item.overlayUrl!;
+        final uri = overlay.startsWith('http')
+            ? Uri.parse(overlay)
+            : Uri.parse(base).resolve(overlay); // 確保加上 API host
+        urlString = uri.toString();
+        provider = NetworkImage(urlString);
+      } else if (item.overlayDataUrl != null &&
+          item.overlayDataUrl!.isNotEmpty) {
+        try {
+          final data = UriData.parse(item.overlayDataUrl!);
+          provider = MemoryImage(data.contentAsBytes());
+        } catch (_) {}
+      }
+
+      if (provider == null) {
         return Container(
           color: Colors.grey.shade200,
           alignment: Alignment.center,
           child: const Icon(Icons.image),
         );
       }
-      try {
-        final data = UriData.parse(overlay);
-        final bytes = data.contentAsBytes();
-        final provider = MemoryImage(bytes);
-        return GestureDetector(
-          onTap: () => _showPreview(provider),
-          child: Image(
-            image: provider,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              color: Colors.grey.shade200,
-              alignment: Alignment.center,
-              child: const Icon(Icons.image),
-            ),
-          ),
-        );
-      } catch (_) {
-        return Container(
-          color: Colors.grey.shade200,
-          alignment: Alignment.center,
-          child: const Icon(Icons.image_not_supported),
-        );
-      }
+
+      return GestureDetector(
+        onTap: () => _showPreview(provider!),
+        child: provider is NetworkImage
+            ? Image.network(
+                urlString!,
+                fit: BoxFit.cover,
+                key: urlString != null ? ValueKey(urlString) : null,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    color: Colors.grey.shade200,
+                    alignment: Alignment.center,
+                    child: const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey.shade200,
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.image_not_supported),
+                      Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Text(
+                          '載入失敗',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : Image(
+                image: provider!,
+                fit: BoxFit.cover,
+                key: urlString != null ? ValueKey(urlString) : null,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey.shade200,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.image_not_supported),
+                ),
+              ),
+      );
     }
 
     return Card(
@@ -339,6 +399,13 @@ class _PickCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       qtyLabel,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  if (seqLabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      seqLabel,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],

@@ -288,15 +288,25 @@ class _CaptureScreenState extends State<CaptureScreen>
           ? const Center(child: CircularProgressIndicator())
           : GestureDetector(
               onTap: widget.onToggleUi,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (controller != null && controller.value.isInitialized)
-                    _AspectCameraPreview(controller)
-                  else
-                    Container(color: Colors.black12),
-                  CaptureOverlay(showGrid: false, label: _status),
-                ],
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: AspectRatio(
+                    aspectRatio:
+                        controller?.value.aspectRatio ?? (4 / 3),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (controller != null &&
+                            controller.value.isInitialized)
+                          _AspectCameraPreview(controller)
+                        else
+                          Container(color: Colors.black12),
+                        CaptureOverlay(showGrid: false, label: _status),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
       floatingActionButton: FloatingActionButton.large(
