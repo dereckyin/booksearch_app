@@ -5,6 +5,7 @@ import '../services/picklist_service.dart';
 import 'capture_screen.dart';
 import 'pick_list_screen.dart';
 import 'upload_gallery_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -32,9 +33,10 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _refreshPickListCount();
+    _restoreEmployeeId().then((_) => _refreshPickListCount());
     _setOrientationForIndex(_index);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _promptEmployeeId());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _ensureEmployeeSelected());
   }
 
   Future<void> _setOrientationForIndex(int index) async {
@@ -210,6 +212,7 @@ class _HomeShellState extends State<HomeShell> {
       setState(() {
         _employeeId = selected;
       });
+      await _persistEmployeeId(selected!);
       await _refreshPickListCount();
     } catch (e) {
       if (!mounted) return;
@@ -220,6 +223,27 @@ class _HomeShellState extends State<HomeShell> {
       if (mounted) {
         setState(() => _pickingEmployee = false);
       }
+    }
+  }
+
+  Future<void> _persistEmployeeId(String employeeId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('employee_id', employeeId);
+  }
+
+  Future<void> _restoreEmployeeId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('employee_id');
+    if (saved != null && saved.isNotEmpty && mounted) {
+      setState(() {
+        _employeeId = saved;
+      });
+    }
+  }
+
+  Future<void> _ensureEmployeeSelected() async {
+    if (_employeeId == null || _employeeId!.isEmpty) {
+      await _promptEmployeeId();
     }
   }
 }
