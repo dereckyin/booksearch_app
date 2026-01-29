@@ -35,8 +35,6 @@ class _HomeShellState extends State<HomeShell> {
     super.initState();
     _restoreEmployeeId().then((_) => _refreshPickListCount());
     _setOrientationForIndex(_index);
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _ensureEmployeeSelected());
   }
 
   Future<void> _setOrientationForIndex(int index) async {
@@ -68,7 +66,7 @@ class _HomeShellState extends State<HomeShell> {
           PickListScreen(
             service: _pickListService,
             employeeId: _employeeId,
-            onRequestEmployeeId: _promptEmployeeId,
+            onRequestEmployeeId: null, // 登入選擇暫時隱藏
             onCountChanged: (count) => setState(() => _pickListCount = count),
           ),
           CaptureScreen(
@@ -241,11 +239,6 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Future<void> _ensureEmployeeSelected() async {
-    if (_employeeId == null || _employeeId!.isEmpty) {
-      await _promptEmployeeId();
-    }
-  }
 }
 
 
