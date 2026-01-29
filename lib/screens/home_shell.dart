@@ -33,7 +33,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _restoreEmployeeId().then((_) => _refreshPickListCount());
+    _ensureEmployeeId().then((_) => _refreshPickListCount());
     _setOrientationForIndex(_index);
   }
 
@@ -46,7 +46,10 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _refreshPickListCount() async {
-    if (_employeeId == null || _employeeId!.isEmpty) return;
+    if (_employeeId == null || _employeeId!.isEmpty) {
+      await _ensureEmployeeId();
+      if (_employeeId == null || _employeeId!.isEmpty) return;
+    }
     try {
       final mains =
           await _pickListService.fetchPickListMain(employeeId: _employeeId!);
@@ -66,7 +69,8 @@ class _HomeShellState extends State<HomeShell> {
           PickListScreen(
             service: _pickListService,
             employeeId: _employeeId,
-            onRequestEmployeeId: null, // 登入選擇暫時隱藏
+            // If default employeeId can't be determined, allow user to pick.
+            onRequestEmployeeId: _promptEmployeeId,
             onCountChanged: (count) => setState(() => _pickListCount = count),
           ),
           CaptureScreen(
@@ -236,6 +240,26 @@ class _HomeShellState extends State<HomeShell> {
       setState(() {
         _employeeId = saved;
       });
+    }
+  }
+
+  Future<void> _ensureEmployeeId() async {
+    await _restoreEmployeeId();
+    if (!mounted) return;
+    if (_employeeId != null && _employeeId!.isNotEmpty) return;
+
+    // No saved value: default to the first available picker (server-provided).
+    try {
+      final pickers = await _pickListService.fetchPickersToday();
+      if (!mounted) return;
+      if (pickers.isEmpty) return;
+
+      final fallback = pickers.first.employeeNo.trim();
+      if (fallback.isEmpty) return;
+      setState(() => _employeeId = fallback);
+      await _persistEmployeeId(fallback);
+    } catch (_) {
+      // Ignore; user can still pick manually via dialog.
     }
   }
 
