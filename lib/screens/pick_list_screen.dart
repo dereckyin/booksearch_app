@@ -199,10 +199,11 @@ class _PickMainCard extends StatelessWidget {
 }
 
 class _PickCard extends StatelessWidget {
-  const _PickCard({required this.item, this.onTap});
+  const _PickCard({required this.item, this.onTap, this.completed = false});
 
   final PickListItem item;
   final VoidCallback? onTap;
+  final bool completed;
 
   @override
   Widget build(BuildContext context) {
@@ -363,58 +364,93 @@ class _PickCard extends StatelessWidget {
       );
     }
 
+    final cardColor = completed
+        ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
+        : null;
+    final borderColor = completed
+        ? Theme.of(context).colorScheme.primary
+        : Colors.transparent;
+
     return Card(
+      color: cardColor,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: borderColor, width: completed ? 2 : 0),
+        borderRadius: BorderRadius.circular(12),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Row(
-          children: [
-            SizedBox(width: 96, height: 120, child: _image()),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  shelfLabel,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
                 children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  SizedBox(width: 96, height: 120, child: _image()),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (productLabel != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            productLabel,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                        if (logcodeLabel != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            logcodeLabel,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                        if (qtyLabel != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            qtyLabel,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                        if (seqLabel != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            seqLabel,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                  if (productLabel != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      productLabel,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                  if (logcodeLabel != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      logcodeLabel,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                  if (qtyLabel != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      qtyLabel,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                  if (seqLabel != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      seqLabel,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                  const SizedBox(width: 12),
+                  SizedBox(width: 96, height: 120, child: _mockShelf()),
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(width: 96, height: 120, child: _mockShelf()),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -439,7 +475,12 @@ class PickListItemsScreen extends StatefulWidget {
 
 class _PickListItemsScreenState extends State<PickListItemsScreen> {
   late final PickListService _service;
-  late Future<List<PickListItem>> _future;
+  List<PickListItem> _items = [];
+  Set<String> _completed = {};
+  int _currentVisibleIndex = 0;
+  bool _showCompleted = false;
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -448,14 +489,30 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     _load();
   }
 
-  void _load() {
+  Future<void> _load() async {
     setState(() {
-      _future = _service.fetchItemsBySdNo(
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await _service.fetchItemsBySdNo(
         employeeId: widget.employeeId,
         sdNo: widget.main.sdNo,
         main: widget.main,
       );
-    });
+      if (!mounted) return;
+      setState(() {
+        _items = data;
+        _currentVisibleIndex = 0;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
   }
 
   @override
@@ -479,94 +536,163 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           ],
         ),
       ),
-      body: FutureBuilder<List<PickListItem>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('載入失敗'),
-                  const SizedBox(height: 8),
-                  Text('${snapshot.error}'),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: _load,
-                    child: const Text('重試'),
-                  ),
-                ],
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final totalDone = _completed.length;
+    final totalUndone = _items.length - totalDone;
+    final filtered = _filteredIndexes();
+
+    Widget content;
+    if (_error != null) {
+      content = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('載入失敗'),
+          const SizedBox(height: 8),
+          Text(_error!),
+          const SizedBox(height: 8),
+          ElevatedButton(onPressed: _load, child: const Text('重試')),
+        ],
+      );
+    } else if (_items.isEmpty) {
+      content = const Center(child: Text('此撿貨單目前沒有品項'));
+    } else if (filtered.isEmpty) {
+      content = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('目前沒有符合條件的品項'),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: () => setState(() {
+              _showCompleted = false;
+              _currentVisibleIndex = 0;
+            }),
+            child: const Text('顯示未撿貨'),
+          ),
+        ],
+      );
+    } else {
+      final item = _items[filtered[_currentVisibleIndex]];
+      final isCompleted = _completed.contains(_itemKey(item));
+      content = Column(
+        children: [
+          _PickCard(
+            item: item,
+            onTap: () {},
+            completed: isCompleted,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              FilledButton.tonal(
+                onPressed: _currentVisibleIndex > 0 ? () => _go(-1) : null,
+                child: const Text('上一項'),
               ),
-            );
-          }
-          final items = snapshot.data ?? [];
-          if (items.isEmpty) {
-            return const Center(child: Text('此撿貨單目前沒有品項'));
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.all(12),
-            itemCount: _grouped(items).length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final entry = _grouped(items)[index];
-              final shelf = entry.key;
-              final shelfItems = entry.value;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    margin: const EdgeInsets.only(bottom: 6),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.35),
-                        width: 1,
-                      ),
+              FilledButton(
+                onPressed: () => _markComplete(item),
+                child: Text(isCompleted ? '已完成' : '標記完成'),
+              ),
+              FilledButton.tonal(
+                onPressed: _currentVisibleIndex < filtered.length - 1
+                    ? () => _go(1)
+                    : null,
+                child: const Text('下一項'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '項目 ${_currentVisibleIndex + 1}/${filtered.length}',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: false,
+                      label: Text('未撿貨 ($totalUndone)'),
+                      icon: const Icon(Icons.list_alt),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inventory_2, size: 18, color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(width: 6),
-                        Text(
-                          '櫃號：$shelf',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                        ),
-                      ],
+                    ButtonSegment(
+                      value: true,
+                      label: Text('已撿貨 ($totalDone)'),
+                      icon: const Icon(Icons.check_circle),
                     ),
-                  ),
-                  ...shelfItems.map((item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _PickCard(item: item),
-                      )),
-                ],
-              );
-            },
-          );
-        },
+                  ],
+                  selected: {_showCompleted},
+                  onSelectionChanged: (sel) {
+                    final value = sel.first;
+                    setState(() {
+                      _showCompleted = value;
+                      _currentVisibleIndex = 0;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: Center(child: content),
+          ),
+        ],
       ),
     );
   }
 
-  List<MapEntry<String, List<PickListItem>>> _grouped(
-      List<PickListItem> items) {
-    final map = <String, List<PickListItem>>{};
-    for (final item in items) {
-      final key = (item.rkId != null && item.rkId!.isNotEmpty)
-          ? item.rkId!
-          : (item.id.isNotEmpty ? item.id : '未提供櫃號');
-      map.putIfAbsent(key, () => []).add(item);
+  void _go(int delta) {
+    final filtered = _filteredIndexes();
+    final next = (_currentVisibleIndex + delta).clamp(0, filtered.length - 1);
+    if (next != _currentVisibleIndex) {
+      setState(() => _currentVisibleIndex = next);
     }
-    return map.entries.toList();
+  }
+
+  void _markComplete(PickListItem item) {
+    final key = _itemKey(item);
+    setState(() {
+      if (_completed.contains(key)) {
+        _completed.remove(key);
+      } else {
+        _completed.add(key);
+      }
+      final filtered = _filteredIndexes();
+      if (_currentVisibleIndex >= filtered.length) {
+        _currentVisibleIndex = filtered.isEmpty ? 0 : filtered.length - 1;
+      }
+    });
+  }
+
+  String _itemKey(PickListItem item) =>
+      '${item.id}-${item.seqNum ?? ''}-${item.productId}';
+
+  List<int> _filteredIndexes() {
+    final result = <int>[];
+    for (var i = 0; i < _items.length; i++) {
+      final key = _itemKey(_items[i]);
+      final isDone = _completed.contains(key);
+      if (_showCompleted ? isDone : !isDone) {
+        result.add(i);
+      }
+    }
+    return result;
   }
 }
 
