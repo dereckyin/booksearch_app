@@ -51,7 +51,11 @@ class _PickListScreenState extends State<PickListScreen> {
     setState(() {
       _futureMain = future;
     });
-    future.then((items) => widget.onCountChanged?.call(items.length)).catchError((_) {});
+    future
+        .then((items) => widget.onCountChanged?.call(
+              items.where((m) => (m.statusFlg ?? '').toUpperCase() != 'Y').length,
+            ))
+        .catchError((_) {});
   }
 
   Future<void> _reload() async {
@@ -81,62 +85,86 @@ class _PickListScreenState extends State<PickListScreen> {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('撿貨單'),
-        actions: [
-          IconButton(
-            tooltip: '重新整理',
-            onPressed: _reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      body: FutureBuilder<List<PickListMain>>(
-        future: _futureMain,
-        builder: (context, snapshot) {
-          if (_futureMain == null) {
-            return const SizedBox.shrink();
-          }
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('載入失敗'),
-                  const SizedBox(height: 8),
-                  Text('${snapshot.error}'),
-                  const SizedBox(height: 8),
-                  ElevatedButton(onPressed: _reload, child: const Text('重試')),
-                ],
-              ),
-            );
-          }
-          final mains = snapshot.data ?? [];
-          if (mains.isEmpty) {
-            return const Center(child: Text('目前沒有撿貨單'));
-          }
-          return RefreshIndicator(
-            onRefresh: _reload,
-            child: ListView.separated(
-              padding: const EdgeInsets.all(12),
-              itemCount: mains.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final main = mains[index];
-                return _PickMainCard(
-                  main: main,
-                  onTap: () => _openItems(main),
-                );
-              },
+    return DefaultTabController(
+      length: 2,
+      initialIndex: 0,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('撿貨單'),
+          actions: [
+            IconButton(
+              tooltip: '重新整理',
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh),
             ),
-          );
-        },
+          ],
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: '未完成'),
+              Tab(text: '已完成'),
+            ],
+          ),
+        ),
+        body: FutureBuilder<List<PickListMain>>(
+          future: _futureMain,
+          builder: (context, snapshot) {
+            if (_futureMain == null) {
+              return const SizedBox.shrink();
+            }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('載入失敗'),
+                    const SizedBox(height: 8),
+                    Text('${snapshot.error}'),
+                    const SizedBox(height: 8),
+                    ElevatedButton(onPressed: _reload, child: const Text('重試')),
+                  ],
+                ),
+              );
+            }
+            final mains = snapshot.data ?? [];
+            if (mains.isEmpty) {
+              return const Center(child: Text('目前沒有撿貨單'));
+            }
+            final grouped = _groupMainByStatus(mains);
+            return TabBarView(
+              children: [
+                _MainList(
+                  mains: grouped['未完成']!,
+                  emptyText: '目前沒有未完成的撿貨單',
+                  onTap: _openItems,
+                  onRefresh: _reload,
+                ),
+                _MainList(
+                  mains: grouped['已完成']!,
+                  emptyText: '目前沒有已完成的撿貨單',
+                  onTap: _openItems,
+                  onRefresh: _reload,
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  Map<String, List<PickListMain>> _groupMainByStatus(List<PickListMain> mains) {
+    final Map<String, List<PickListMain>> result = {
+      '未完成': [],
+      '已完成': [],
+    };
+    for (final m in mains) {
+      final done = (m.statusFlg ?? '').toUpperCase() == 'Y';
+      (done ? result['已完成']! : result['未完成']!).add(m);
+    }
+    return result;
   }
 
   void _openItems(PickListMain main) {
@@ -147,6 +175,51 @@ class _PickListScreenState extends State<PickListScreen> {
           employeeId: widget.employeeId!,
           service: _service,
         ),
+      ),
+    );
+  }
+}
+
+class _MainList extends StatelessWidget {
+  const _MainList({
+    required this.mains,
+    required this.emptyText,
+    required this.onTap,
+    required this.onRefresh,
+  });
+
+  final List<PickListMain> mains;
+  final String emptyText;
+  final void Function(PickListMain) onTap;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: mains.isEmpty ? 1 : mains.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          if (mains.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  emptyText,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            );
+          }
+          final main = mains[index];
+          return _PickMainCard(
+            main: main,
+            onTap: () => onTap(main),
+          );
+        },
       ),
     );
   }
@@ -199,11 +272,17 @@ class _PickMainCard extends StatelessWidget {
 }
 
 class _PickCard extends StatelessWidget {
-  const _PickCard({required this.item, this.onTap, this.completed = false});
+  const _PickCard({
+    required this.item,
+    this.onTap,
+    this.completed = false,
+    this.notFound = false,
+  });
 
   final PickListItem item;
   final VoidCallback? onTap;
   final bool completed;
+  final bool notFound;
 
   @override
   Widget build(BuildContext context) {
@@ -364,12 +443,16 @@ class _PickCard extends StatelessWidget {
       );
     }
 
-    final cardColor = completed
-        ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
-        : null;
-    final borderColor = completed
-        ? Theme.of(context).colorScheme.primary
-        : Colors.transparent;
+    final colors = Theme.of(context).colorScheme;
+    Color? cardColor;
+    Color borderColor = Colors.transparent;
+    if (completed) {
+      cardColor = colors.primary.withOpacity(0.08);
+      borderColor = colors.primary;
+    } else if (notFound) {
+      cardColor = colors.errorContainer.withOpacity(0.6);
+      borderColor = colors.error;
+    }
 
     return Card(
       color: cardColor,
@@ -400,9 +483,15 @@ class _PickCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
+              // 櫃位現場圖置於上方，橫向鋪滿
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: _mockShelf(),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
-                  SizedBox(width: 96, height: 120, child: _image()),
+                  SizedBox(width: 120, height: 150, child: _image()),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -415,7 +504,7 @@ class _PickCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         if (productLabel != null) ...[
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 4),
                           Text(
                             productLabel,
                             style: Theme.of(context).textTheme.bodySmall,
@@ -445,8 +534,6 @@ class _PickCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  SizedBox(width: 96, height: 120, child: _mockShelf()),
                 ],
               ),
             ],
@@ -477,6 +564,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   late final PickListService _service;
   List<PickListItem> _items = [];
   Set<String> _completed = {};
+  Set<String> _notFound = {};
   int _currentVisibleIndex = 0;
   bool _showCompleted = false;
   bool _loading = true;
@@ -505,6 +593,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         _items = data;
         _currentVisibleIndex = 0;
         _loading = false;
+        _notFound.clear();
       });
     } catch (e) {
       if (!mounted) return;
@@ -545,6 +634,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     final totalDone = _completed.length;
+    final totalNotFound = _notFound.length;
     final totalUndone = _items.length - totalDone;
     final filtered = _filteredIndexes();
 
@@ -579,31 +669,48 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       );
     } else {
       final item = _items[filtered[_currentVisibleIndex]];
-      final isCompleted = _completed.contains(_itemKey(item));
+      final itemKey = _itemKey(item);
+      final isCompleted = _completed.contains(itemKey);
+      final isNotFound = _notFound.contains(itemKey);
       content = Column(
         children: [
           _PickCard(
             item: item,
             onTap: () {},
             completed: isCompleted,
+            notFound: isNotFound,
           ),
           const SizedBox(height: 12),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              FilledButton.tonal(
+              IconButton(
                 onPressed: _currentVisibleIndex > 0 ? () => _go(-1) : null,
-                child: const Text('上一項'),
+                icon: const Icon(Icons.chevron_left),
+                tooltip: '上一項',
               ),
+              const SizedBox(width: 8),
               FilledButton(
                 onPressed: () => _markComplete(item),
-                child: Text(isCompleted ? '已完成' : '標記完成'),
+                child: Text(isCompleted ? '已完成' : '完成'),
               ),
+              const SizedBox(width: 8),
               FilledButton.tonal(
+                onPressed: () => _markNotFound(item),
+                style: FilledButton.styleFrom(
+                  backgroundColor: isNotFound
+                      ? Theme.of(context).colorScheme.errorContainer
+                      : null,
+                ),
+                child: Text(isNotFound ? '已標記' : '找不到'),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
                 onPressed: _currentVisibleIndex < filtered.length - 1
                     ? () => _go(1)
                     : null,
-                child: const Text('下一項'),
+                icon: const Icon(Icons.chevron_right),
+                tooltip: '下一項',
               ),
             ],
           ),
@@ -648,6 +755,14 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '找不到：$totalNotFound',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
           const SizedBox(height: 12),
           Expanded(
             child: Center(child: content),
@@ -672,10 +787,23 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         _completed.remove(key);
       } else {
         _completed.add(key);
+        _notFound.remove(key);
       }
       final filtered = _filteredIndexes();
       if (_currentVisibleIndex >= filtered.length) {
         _currentVisibleIndex = filtered.isEmpty ? 0 : filtered.length - 1;
+      }
+    });
+  }
+
+  void _markNotFound(PickListItem item) {
+    final key = _itemKey(item);
+    setState(() {
+      if (_notFound.contains(key)) {
+        _notFound.remove(key);
+      } else {
+        _notFound.add(key);
+        _completed.remove(key);
       }
     });
   }

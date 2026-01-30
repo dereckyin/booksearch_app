@@ -54,7 +54,10 @@ class _HomeShellState extends State<HomeShell> {
       final mains =
           await _pickListService.fetchPickListMain(employeeId: _employeeId!);
       if (!mounted) return;
-      setState(() => _pickListCount = mains.length);
+      final unfinished = mains
+          .where((m) => (m.statusFlg ?? '').toUpperCase() != 'Y')
+          .length;
+      setState(() => _pickListCount = unfinished);
     } catch (_) {
       // Ignore; keep last known count.
     }
