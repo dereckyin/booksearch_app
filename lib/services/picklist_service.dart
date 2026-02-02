@@ -50,11 +50,9 @@ class PickListService {
     }
 
     final mainBody = jsonDecode(mainResp.body);
-    if (mainBody is! List) {
-      throw Exception('Main API unexpected response format');
-    }
+    final mainList = _asList(mainBody, 'Main API');
 
-    final mainRecords = mainBody
+    final mainRecords = mainList
         .whereType<Map<String, dynamic>>()
         .map(PickListMain.fromJson)
         .where((m) => m.sdNo.isNotEmpty)
@@ -83,11 +81,9 @@ class PickListService {
     }
 
     final itemBody = jsonDecode(itemResp.body);
-    if (itemBody is! List) {
-      throw Exception('Items $sdNo unexpected response format');
-    }
+    final itemList = _asList(itemBody, 'Items $sdNo');
 
-    final items = itemBody.whereType<Map<String, dynamic>>().map(
+    final items = itemList.whereType<Map<String, dynamic>>().map(
       (e) => PickListItem.fromJson(
         {...e, 'sdNo': sdNo},
         main: main,
@@ -95,6 +91,24 @@ class PickListService {
     );
 
     return items.toList();
+  }
+
+  List<dynamic> _asList(dynamic body, String context) {
+    if (body is List) return body;
+    if (body is Map<String, dynamic>) {
+      const candidates = ['data', 'items', 'list', 'results', 'records', 'content'];
+      for (final key in candidates) {
+        final v = body[key];
+        if (v is List) return v;
+        if (v is Map && v['items'] is List) return v['items'] as List;
+      }
+      // fallback: first list value in map
+      for (final v in body.values) {
+        if (v is List) return v;
+      }
+      throw Exception('$context unexpected response format (keys: ${body.keys.join(', ')})');
+    }
+    throw Exception('$context unexpected response type: ${body.runtimeType}');
   }
 }
 

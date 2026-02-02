@@ -64,27 +64,6 @@ class _PickListScreenState extends State<PickListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.employeeId == null || widget.employeeId!.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('撿貨單'),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('請先輸入電話號碼以載入撿貨單'),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: widget.onRequestEmployeeId,
-                child: const Text('輸入電話號碼'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return DefaultTabController(
       length: 2,
       initialIndex: 0,
@@ -109,7 +88,7 @@ class _PickListScreenState extends State<PickListScreen> {
           future: _futureMain,
           builder: (context, snapshot) {
             if (_futureMain == null) {
-              return const SizedBox.shrink();
+              return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());

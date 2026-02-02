@@ -53,23 +53,37 @@ class PickListItem {
     String overlayDataUrl = '${json['overlay_data_url'] ?? ''}'.trim();
     String overlayUrl = '${json['overlay_url'] ?? ''}'.trim();
     String seqNum = '${json['seq_num'] ?? json['seqno'] ?? json['seqNum'] ?? ''}'.trim();
+    String total_books = '${json['total_books'] ?? ''}'.trim();
 
     final imageMap = json['image'];
+    String imageName = '${json['image_name'] ?? ''}'.trim();
     if (imageMap is Map<String, dynamic>) {
       overlayUrl = '${imageMap['overlay_url'] ?? overlayUrl}'.trim();
       overlayDataUrl = '${imageMap['overlay_data_url'] ?? overlayDataUrl}'.trim();
       seqNum = '${imageMap['seq_num'] ?? imageMap['seqno'] ?? seqNum}'.trim();
+      total_books = '${imageMap['total_books'] ?? total_books}'.trim();
+      imageName = '${imageMap['image_name'] ?? imageName}'.trim();
+    }
+    // 櫃位現場圖：優先 overlay_url，沒有則用 image_name 組 temp-images 路徑
+    if (overlayUrl.isEmpty && imageName.isNotEmpty) {
+      final q = <String>[];
+      if (seqNum.isNotEmpty) q.add('seq=$seqNum');
+      if (total_books.isNotEmpty) q.add('total_books=$total_books');
+      overlayUrl = q.isEmpty
+          ? '/api/v1/picking-lists/temp-images/$imageName'
+          : '/api/v1/picking-lists/temp-images/$imageName?${q.join('&')}';
     }
 
     final baseImage =
         '${json['imageUrl'] ?? json['image_url'] ?? ''}'.trim();
     final productId =
         '${json['productId'] ?? json['product_id'] ?? json['prod_id'] ?? orgProdId}';
-    final imageUrl = baseImage.isNotEmpty
-        ? baseImage
-        : (orgProdId.isNotEmpty
-            ? 'https://media.taaze.tw/showLargeImage.html?sc=$orgProdId&height=170&width=250'
-            : '');
+    // 產品圖一定要有：API 有給就用，否則用 orgProdId 查 taaze 圖
+    String imageUrl = baseImage;
+    if (imageUrl.isEmpty && orgProdId.isNotEmpty) {
+      imageUrl =
+          'https://media.taaze.tw/showLargeImage.html?sc=$orgProdId&height=170&width=250';
+    }
 
     return PickListItem(
       id: rkId.isNotEmpty ? rkId : '${json['id'] ?? json['code'] ?? sdNo}',

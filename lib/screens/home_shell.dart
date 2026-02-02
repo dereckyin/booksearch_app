@@ -19,6 +19,7 @@ class _HomeShellState extends State<HomeShell> {
   final _pickListService = PickListService();
   int _pickListCount = 0;
   String? _employeeId;
+  static const _defaultEmployeeId = '0922600000';
   bool _captureUiVisible = false;
   bool _pickingEmployee = false;
   static const _pickListTabIndex = 0;
@@ -255,14 +256,22 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final pickers = await _pickListService.fetchPickersToday();
       if (!mounted) return;
-      if (pickers.isEmpty) return;
-
-      final fallback = pickers.first.employeeNo.trim();
-      if (fallback.isEmpty) return;
-      setState(() => _employeeId = fallback);
-      await _persistEmployeeId(fallback);
+      if (pickers.isNotEmpty) {
+        final fallback = pickers.first.employeeNo.trim();
+        if (fallback.isNotEmpty) {
+          setState(() => _employeeId = fallback);
+          await _persistEmployeeId(fallback);
+          return;
+        }
+      }
+      // if API is empty or invalid, fall back to default phone
+      setState(() => _employeeId = _defaultEmployeeId);
+      await _persistEmployeeId(_defaultEmployeeId);
     } catch (_) {
-      // Ignore; user can still pick manually via dialog.
+      if (!mounted) return;
+      // fall back to default phone when API fails
+      setState(() => _employeeId = _defaultEmployeeId);
+      await _persistEmployeeId(_defaultEmployeeId);
     }
   }
 
