@@ -652,6 +652,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       final isCompleted = _completed.contains(itemKey);
       final isNotFound = _notFound.contains(itemKey);
       content = Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           _PickCard(
             item: item,
@@ -744,7 +745,16 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: Center(child: content),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: Center(child: content),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),

@@ -35,6 +35,8 @@
 	<string>This app captures bookshelf photos to locate books.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Allow saving processed captures locally.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow selecting/cropping photos.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

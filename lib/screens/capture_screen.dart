@@ -10,6 +10,7 @@ import '../services/capture_queue.dart';
 import '../services/preprocessor.dart';
 import '../services/upload_service.dart';
 import '../widgets/capture_overlay.dart';
+import 'capture_review_screen.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
@@ -141,9 +142,27 @@ class _CaptureScreenState extends State<CaptureScreen>
       _status = '拍攝中…';
     });
     try {
+      try {
+        await controller.pausePreview();
+      } catch (_) {
+        // Not all platforms support pausing preview reliably.
+      }
       final file = await controller.takePicture();
+      if (!mounted) return;
+
+      // Let user preview/crop before processing & enqueuing.
+      final selectedPath = await Navigator.of(context).push<String?>(
+        MaterialPageRoute(
+          builder: (_) => CaptureReviewScreen(imagePath: file.path),
+        ),
+      );
+      if (selectedPath == null || selectedPath.isEmpty) {
+        setState(() => _status = '已捨棄');
+        return;
+      }
+
       final id = _uuid.v4();
-      final processed = await Preprocessor.process(file.path, id);
+      final processed = await Preprocessor.process(selectedPath, id);
       final record = CaptureRecord(
         id: id,
         shelfId: _shelfId,
@@ -160,6 +179,9 @@ class _CaptureScreenState extends State<CaptureScreen>
     } catch (e) {
       setState(() => _status = '拍攝失敗: $e');
     } finally {
+      try {
+        await controller.resumePreview();
+      } catch (_) {}
       setState(() => _busy = false);
     }
   }
