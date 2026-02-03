@@ -656,6 +656,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     final totalUndone = _items.length - totalDone;
     final filtered = _filteredIndexes();
 
+    bool isItemView = false;
     Widget content;
     if (_error != null) {
       content = Column(
@@ -686,37 +687,47 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         ],
       );
     } else {
+      isItemView = true;
       final item = _items[filtered[_currentVisibleIndex]];
       final itemKey = _itemKey(item);
       final isCompleted = _completed.contains(itemKey);
       final isNotFound = _notFound.contains(itemKey);
-      content = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: filtered.length,
-              onPageChanged: (index) {
-                setState(() => _currentVisibleIndex = index);
-              },
-              itemBuilder: (context, index) {
-                final pageItem = _items[filtered[index]];
-                final key = _itemKey(pageItem);
-                final completed = _completed.contains(key);
-                final notFound = _notFound.contains(key);
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: _PickCard(
-                    item: pageItem,
-                    onTap: () {},
-                    completed: completed,
-                    notFound: notFound,
-                  ),
-                );
-              },
+      content = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final v = details.primaryVelocity ?? 0;
+          if (v < -150) _go(1);
+          if (v > 150) _go(-1);
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: filtered.length,
+                onPageChanged: (index) {
+                  setState(() => _currentVisibleIndex = index);
+                },
+                itemBuilder: (context, index) {
+                  final pageItem = _items[filtered[index]];
+                  final key = _itemKey(pageItem);
+                  final completed = _completed.contains(key);
+                  final notFound = _notFound.contains(key);
+                  return SizedBox.expand(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: _PickCard(
+                        item: pageItem,
+                        onTap: () {},
+                        completed: completed,
+                        notFound: notFound,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -757,6 +768,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
             style: Theme.of(context).textTheme.labelLarge,
           ),
         ],
+        ),
       );
     }
 
@@ -805,16 +817,18 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Center(child: content),
+            child: isItemView
+                ? content
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          child: Center(child: content),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
