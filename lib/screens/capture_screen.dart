@@ -141,6 +141,11 @@ class _CaptureScreenState extends State<CaptureScreen>
       _status = '拍攝中…';
     });
     try {
+      try {
+        await controller.pausePreview();
+      } catch (_) {
+        // Not all platforms support pausing preview reliably.
+      }
       final file = await controller.takePicture();
       if (!mounted) return;
       setState(() => _busy = false);
@@ -164,6 +169,9 @@ class _CaptureScreenState extends State<CaptureScreen>
       if (mounted) setState(() => _status = '拍攝失敗: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
+      try {
+        await controller.resumePreview();
+      } catch (_) {}
     }
   }
 

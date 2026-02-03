@@ -3,8 +3,10 @@ import 'dart:io';
 class ApiConfig {
   ApiConfig();
 
-  static const String _env =
-      String.fromEnvironment('APP_ENV', defaultValue: 'testing');
+  static const String _env = String.fromEnvironment(
+    'APP_ENV',
+    defaultValue: 'testing',
+  );
 
   bool get isTesting => _env.toLowerCase() == 'production';
   bool get isProduction => !isTesting;
