@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // uCrop (image_cropper) 在 release 時會引用 OkHttp，需加入以免 R8 報 Missing class
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}

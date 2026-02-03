@@ -7,9 +7,9 @@ import 'package:uuid/uuid.dart';
 
 import '../models/capture_record.dart';
 import '../services/capture_queue.dart';
-import '../services/preprocessor.dart';
 import '../services/upload_service.dart';
 import '../widgets/capture_overlay.dart';
+import 'capture_preview_screen.dart';
 
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
@@ -142,25 +142,28 @@ class _CaptureScreenState extends State<CaptureScreen>
     });
     try {
       final file = await controller.takePicture();
-      final id = _uuid.v4();
-      final processed = await Preprocessor.process(file.path, id);
-      final record = CaptureRecord(
-        id: id,
-        shelfId: _shelfId,
-        localPath: processed.processedPath,
-        thumbnailPath: processed.thumbnailPath,
-        width: processed.width,
-        height: processed.height,
-        capturedAt: DateTime.now(),
-      );
-      await _queue.upsert(record);
-      await _loadQueue();
-      setState(() => _status = '已拍攝，等待上傳');
-      _processPendingUploads();
-    } catch (e) {
-      setState(() => _status = '拍攝失敗: $e');
-    } finally {
+      if (!mounted) return;
       setState(() => _busy = false);
+      final uploaded = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => CapturePreviewScreen(
+            photoPath: file.path,
+            shelfId: _shelfId,
+          ),
+        ),
+      );
+      if (!mounted) return;
+      if (uploaded == true) {
+        await _loadQueue();
+        setState(() => _status = '已上傳，等待同步');
+        _processPendingUploads();
+      } else {
+        setState(() => _status = '已捨棄');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _status = '拍攝失敗: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

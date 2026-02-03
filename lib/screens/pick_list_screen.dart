@@ -498,10 +498,41 @@ class _PickCard extends StatelessWidget {
                         ],
                         if (qtyLabel != null) ...[
                           const SizedBox(height: 2),
-                          Text(
-                            qtyLabel,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
+                          item.mustQty != null && item.mustQty! > 1
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .errorContainer
+                                        .withOpacity(0.8),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error
+                                          .withOpacity(0.6),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    qtyLabel,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onErrorContainer,
+                                        ),
+                                  ),
+                                )
+                              : Text(
+                                  qtyLabel,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
                         ],
                         if (seqLabel != null) ...[
                           const SizedBox(height: 2),
@@ -548,12 +579,20 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   bool _showCompleted = false;
   bool _loading = true;
   String? _error;
+  late final PageController _pageController;
 
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? PickListService();
+    _pageController = PageController();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -652,12 +691,31 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       final isCompleted = _completed.contains(itemKey);
       final isNotFound = _notFound.contains(itemKey);
       content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _PickCard(
-            item: item,
-            onTap: () {},
-            completed: isCompleted,
-            notFound: isNotFound,
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: filtered.length,
+              onPageChanged: (index) {
+                setState(() => _currentVisibleIndex = index);
+              },
+              itemBuilder: (context, index) {
+                final pageItem = _items[filtered[index]];
+                final key = _itemKey(pageItem);
+                final completed = _completed.contains(key);
+                final notFound = _notFound.contains(key);
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: _PickCard(
+                    item: pageItem,
+                    onTap: () {},
+                    completed: completed,
+                    notFound: notFound,
+                  ),
+                );
+              },
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -729,6 +787,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                       _showCompleted = value;
                       _currentVisibleIndex = 0;
                     });
+                    if (_pageController.hasClients) {
+                      _pageController.jumpToPage(0);
+                    }
                   },
                 ),
               ),
@@ -755,7 +816,11 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     final filtered = _filteredIndexes();
     final next = (_currentVisibleIndex + delta).clamp(0, filtered.length - 1);
     if (next != _currentVisibleIndex) {
-      setState(() => _currentVisibleIndex = next);
+      _pageController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     }
   }
 
