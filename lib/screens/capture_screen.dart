@@ -141,18 +141,20 @@ class _CaptureScreenState extends State<CaptureScreen>
       _status = '拍攝中…';
     });
     try {
-      try {
-        await controller.pausePreview();
-      } catch (_) {
-        // Not all platforms support pausing preview reliably.
-      }
       final file = await controller.takePicture();
+      final photoPath = file.path;
       if (!mounted) return;
+      if (photoPath.isEmpty) {
+        setState(() => _status = '拍照路徑無效');
+        return;
+      }
       setState(() => _busy = false);
+      await Future<void>.delayed(Duration.zero);
+      if (!mounted) return;
       final uploaded = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => CapturePreviewScreen(
-            photoPath: file.path,
+            photoPath: photoPath,
             shelfId: _shelfId,
           ),
         ),
@@ -169,9 +171,6 @@ class _CaptureScreenState extends State<CaptureScreen>
       if (mounted) setState(() => _status = '拍攝失敗: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
-      try {
-        await controller.resumePreview();
-      } catch (_) {}
     }
   }
 
