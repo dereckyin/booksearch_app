@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/auth_user.dart';
 import '../services/picklist_service.dart';
 import 'capture_screen.dart';
 import 'pick_list_screen.dart';
 import 'upload_gallery_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  const HomeShell({
+    super.key,
+    required this.token,
+    required this.pickListService,
+    required this.onLogout,
+    this.user,
+  });
+
+  final String token;
+  final AuthUser? user;
+  final PickListService pickListService;
+  final Future<void> Function() onLogout;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -16,12 +27,8 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
-  final _pickListService = PickListService();
   int _pickListCount = 0;
-  String? _employeeId;
-  static const _defaultEmployeeId = '0922600000';
   bool _captureUiVisible = false;
-  bool _pickingEmployee = false;
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
   static const _uploadTabIndex = 2;
@@ -34,7 +41,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _ensureEmployeeId().then((_) => _refreshPickListCount());
+    _refreshPickListCount();
     _setOrientationForIndex(_index);
   }
 
@@ -47,13 +54,8 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _refreshPickListCount() async {
-    if (_employeeId == null || _employeeId!.isEmpty) {
-      await _ensureEmployeeId();
-      if (_employeeId == null || _employeeId!.isEmpty) return;
-    }
     try {
-      final mains =
-          await _pickListService.fetchPickListMain(employeeId: _employeeId!);
+      final mains = await widget.pickListService.fetchPickListMain();
       if (!mounted) return;
       final unfinished = mains
           .where((m) => (m.statusFlg ?? '').toUpperCase() != 'Y')
@@ -67,14 +69,36 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('揀貨單'),
+        actions: [
+          if (widget.user != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 8, right: 4, top: 14, bottom: 14),
+              child: Center(
+                child: Text(
+                  widget.user!.displayName,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: '登出',
+            onPressed: () async {
+              await widget.onLogout();
+            },
+          ),
+        ],
+      ),
       body: IndexedStack(
         index: _index,
         children: [
           PickListScreen(
-            service: _pickListService,
-            employeeId: _employeeId,
-            // If default employeeId can't be determined, allow user to pick.
-            onRequestEmployeeId: _promptEmployeeId,
+            service: widget.pickListService,
+            employeeId: widget.user?.phone,
             onCountChanged: (count) => setState(() => _pickListCount = count),
           ),
           CaptureScreen(
@@ -94,7 +118,7 @@ class _HomeShellState extends State<HomeShell> {
                 setState(() {
                   _index = i;
                   if (i != _captureTabIndex) {
-                    _captureUiVisible = true; // ensure nav/AppBar visible on other tabs
+                    _captureUiVisible = true;
                   }
                 });
                 await _setOrientationForIndex(i);
@@ -106,7 +130,7 @@ class _HomeShellState extends State<HomeShell> {
                 NavigationDestination(
                   icon: _buildPickListBadgeIcon(context),
                   selectedIcon: _buildPickListBadgeIcon(context),
-                  label: '撿貨單',
+                  label: '揀貨單',
                 ),
                 const NavigationDestination(
                   icon: Icon(Icons.camera_alt_outlined),
@@ -160,121 +184,4 @@ class _HomeShellState extends State<HomeShell> {
       ],
     );
   }
-
-  Future<void> _promptEmployeeId() async {
-    if (_pickingEmployee) return;
-    setState(() => _pickingEmployee = true);
-    try {
-      final pickers = await _pickListService.fetchPickersToday();
-      if (!mounted) return;
-      if (pickers.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('今日沒有可用的撿貨電話號碼')),
-        );
-        return;
-      }
-      String? selected = _employeeId;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) {
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: const Text('選擇您的電話號碼'),
-                content: SizedBox(
-                  width: double.maxFinite,
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: pickers.length,
-                    itemBuilder: (context, index) {
-                      final picker = pickers[index];
-                      return RadioListTile<String>(
-                        value: picker.employeeNo,
-                        groupValue: selected,
-                        onChanged: (val) => setState(() => selected = val),
-                        title: Text(picker.display),
-                      );
-                    },
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: selected == null
-                        ? null
-                        : () {
-                            Navigator.of(context).pop();
-                          },
-                    child: const Text('使用此電話號碼'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-      if (!mounted) return;
-      if (selected == null || selected?.isEmpty == true) return;
-      setState(() {
-        _employeeId = selected;
-      });
-      await _persistEmployeeId(selected!);
-      await _refreshPickListCount();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('無法取得電話號碼清單: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _pickingEmployee = false);
-      }
-    }
-  }
-
-  Future<void> _persistEmployeeId(String employeeId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('employee_id', employeeId);
-  }
-
-  Future<void> _restoreEmployeeId() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('employee_id');
-    if (saved != null && saved.isNotEmpty && mounted) {
-      setState(() {
-        _employeeId = saved;
-      });
-    }
-  }
-
-  Future<void> _ensureEmployeeId() async {
-    await _restoreEmployeeId();
-    if (!mounted) return;
-    if (_employeeId != null && _employeeId!.isNotEmpty) return;
-
-    // No saved value: default to the first available picker (server-provided).
-    try {
-      final pickers = await _pickListService.fetchPickersToday();
-      if (!mounted) return;
-      if (pickers.isNotEmpty) {
-        final fallback = pickers.first.employeeNo.trim();
-        if (fallback.isNotEmpty) {
-          setState(() => _employeeId = fallback);
-          await _persistEmployeeId(fallback);
-          return;
-        }
-      }
-      // if API is empty or invalid, fall back to default phone
-      setState(() => _employeeId = _defaultEmployeeId);
-      await _persistEmployeeId(_defaultEmployeeId);
-    } catch (_) {
-      if (!mounted) return;
-      // fall back to default phone when API fails
-      setState(() => _employeeId = _defaultEmployeeId);
-      await _persistEmployeeId(_defaultEmployeeId);
-    }
-  }
-
 }
-
-

@@ -1,8 +1,13 @@
+/// lock_status 由 GET /main 帶 token 時回傳（揀貨單手機端開發指南 §4.1）
+/// available / locked_by_me / locked_by_other
 class PickListMain {
   PickListMain({
     required this.sdNo,
     this.whId,
     this.statusFlg,
+    this.lockStatus,
+    this.area,
+    this.lockedByPhone,
     this.companyId,
     this.deliver,
     this.cnno,
@@ -36,6 +41,9 @@ class PickListMain {
   final String sdNo;
   final String? whId;
   final String? statusFlg;
+  final String? lockStatus;
+  final String? area;
+  final String? lockedByPhone;
   final String? companyId;
   final String? deliver;
   final String? cnno;
@@ -148,6 +156,9 @@ class PickListMain {
       sdNo: sdNo,
       whId: _asString(json['wh_id']),
       statusFlg: _asString(json['status_flg']),
+      lockStatus: _asString(json['lock_status']),
+      area: _asString(json['area']),
+      lockedByPhone: _asString(json['locked_by_phone']),
       companyId: _asString(json['company_id']),
       deliver: _asString(json['deliver']),
       cnno: _asString(json['cnno']),

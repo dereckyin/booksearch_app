@@ -3,20 +3,185 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../models/auth_user.dart';
 import '../models/pick_list_main.dart';
 import '../models/pick_list_item.dart';
 import '../models/picker_info.dart';
 
-/// Service to fetch pick-list items from backend API.
+/// Service for pick-list API（揀貨單手機端開發指南）.
+/// 需登入的 API 請先設定 [token]；收到 401 時會呼叫 [onUnauthorized]。
 class PickListService {
   PickListService({
     ApiConfig? config,
     http.Client? client,
+    this.token,
+    this.onUnauthorized,
   })  : _config = config ?? ApiConfig(),
         _client = client ?? http.Client();
 
   final ApiConfig _config;
   final http.Client _client;
+
+  /// JWT，登入後設定；所有需認證的請求會帶 Authorization: Bearer [token]
+  String? token;
+
+  /// 收到 401 時呼叫（清除 token 並導回登入）
+  void Function()? onUnauthorized;
+
+  Map<String, String> _headers({bool jsonBody = false}) {
+    final map = <String, String>{};
+    if (jsonBody) map['Content-Type'] = 'application/json';
+    if (token != null && token!.isNotEmpty) {
+      map['Authorization'] = 'Bearer $token';
+    }
+    return map;
+  }
+
+  void _checkUnauthorized(http.Response resp) {
+    if (resp.statusCode == 401) onUnauthorized?.call();
+  }
+
+  /// 登入：POST /api/v1/picking-lists/login
+  Future<LoginResponse> login({
+    required String phone,
+    required String password,
+  }) async {
+    final uri = Uri.parse('${_config.uploadBase}/api/v1/picking-lists/login');
+    final body = jsonEncode({'phone': phone, 'password': password});
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: body,
+    );
+    if (resp.statusCode == 200) {
+      final json = jsonDecode(resp.body) as Map<String, dynamic>;
+      return LoginResponse.fromJson(json);
+    }
+    if (resp.statusCode == 401) {
+      final json = jsonDecode(resp.body);
+      final detail = json is Map ? (json['detail'] ?? resp.body) : resp.body;
+      throw Exception(detail is String ? detail : detail.toString());
+    }
+    throw Exception('登入失敗 ${resp.statusCode}: ${resp.body}');
+  }
+
+  /// 今日總量（免 token）：GET /api/v1/picking-lists/main/summary
+  Future<MainSummary> getSummary() async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/main/summary',
+    );
+    final resp = await _client.get(uri);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('Summary API ${resp.statusCode}: ${resp.body}');
+    }
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    return MainSummary(
+      totalSheets: (json['total_sheets'] is num)
+          ? (json['total_sheets'] as num).toInt()
+          : 0,
+      totalEntries: (json['total_entries'] is num)
+          ? (json['total_entries'] as num).toInt()
+          : 0,
+    );
+  }
+
+  /// 我今日已領／已完成（需 token）：GET /api/v1/picking-lists/my-today
+  Future<MyTodayResponse> getMyToday() async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/my-today',
+    );
+    final resp = await _client.get(uri, headers: _headers());
+    _checkUnauthorized(resp);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('My-today API ${resp.statusCode}: ${resp.body}');
+    }
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    final list = json['locked_list'];
+    final lockedList = list is List
+        ? list
+            .whereType<Map<String, dynamic>>()
+            .map((e) => LockedEntry(
+                  sdNo: '${e['sd_no'] ?? e['sdNo'] ?? ''}',
+                  lockedAt: e['locked_at'] is num
+                      ? (e['locked_at'] as num).toInt()
+                      : 0,
+                ))
+            .toList()
+        : <LockedEntry>[];
+    return MyTodayResponse(
+      lockedCount: (json['locked_count'] is num)
+          ? (json['locked_count'] as num).toInt()
+          : 0,
+      completedCount: (json['completed_count'] is num)
+          ? (json['completed_count'] as num).toInt()
+          : 0,
+      lockedList: lockedList,
+    );
+  }
+
+  /// 領取此單（鎖定）：POST /api/v1/picking-lists/lock
+  Future<void> lock(String sdNo) async {
+    final uri = Uri.parse('${_config.uploadBase}/api/v1/picking-lists/lock');
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({'sd_no': sdNo}),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode == 200) return;
+    if (resp.statusCode == 409) {
+      final json = jsonDecode(resp.body);
+      final detail = json is Map ? json['detail'] : resp.body;
+      throw Exception(
+        detail is String ? detail : '此單已被他人領取',
+      );
+    }
+    throw Exception('Lock API ${resp.statusCode}: ${resp.body}');
+  }
+
+  /// 完成並釋放（解鎖）：POST /api/v1/picking-lists/unlock
+  Future<void> unlock(String sdNo) async {
+    final uri = Uri.parse('${_config.uploadBase}/api/v1/picking-lists/unlock');
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({'sd_no': sdNo}),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode == 200) return;
+    if (resp.statusCode == 403) {
+      throw Exception('此單由他人揀選中，您無法釋放');
+    }
+    throw Exception('Unlock API ${resp.statusCode}: ${resp.body}');
+  }
+
+  /// 揀不到回報：POST /api/v1/picking-lists/cannot-pick
+  Future<void> reportCannotPick({
+    required String sdNo,
+    required String prodId,
+    required String rkId,
+    required String reason,
+    String? remark,
+  }) async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/cannot-pick',
+    );
+    final body = <String, dynamic>{
+      'sd_no': sdNo,
+      'prod_id': prodId,
+      'rk_id': rkId,
+      'reason': reason,
+    };
+    if (remark != null && remark.isNotEmpty) body['remark'] = remark;
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode(body),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    throw Exception('揀不到回報失敗 ${resp.statusCode}: ${resp.body}');
+  }
 
   Future<List<PickerInfo>> fetchPickersToday() async {
     final uri = Uri.parse(
@@ -33,18 +198,20 @@ class PickListService {
     return body.map(PickerInfo.fromJson).toList();
   }
 
+  /// 列表：GET /api/v1/picking-lists/main（建議帶 token 以取得 lock_status）
   Future<List<PickListMain>> fetchPickListMain({
-    required String employeeId,
+    String? employeeId,
   }) async {
     final mainUri = Uri.parse(
       '${_config.uploadBase}/api/v1/picking-lists/main',
     ).replace(
-      queryParameters: {
-        'employeeNo': employeeId,
-      },
+      queryParameters: employeeId != null && employeeId.isNotEmpty
+          ? {'employeeNo': employeeId}
+          : null,
     );
 
-    final mainResp = await _client.get(mainUri);
+    final mainResp = await _client.get(mainUri, headers: _headers());
+    _checkUnauthorized(mainResp);
     if (mainResp.statusCode < 200 || mainResp.statusCode >= 300) {
       throw Exception('Main API ${mainResp.statusCode}: ${mainResp.body}');
     }
@@ -61,21 +228,22 @@ class PickListService {
     return mainRecords;
   }
 
+  /// 品項：GET /api/v1/picking-lists/items/test
   Future<List<PickListItem>> fetchItemsBySdNo({
-    required String employeeId,
+    String? employeeId,
     required String sdNo,
     PickListMain? main,
   }) async {
+    final params = <String, String>{'sd_no': sdNo};
+    if (employeeId != null && employeeId.isNotEmpty) {
+      params['employeeNo'] = employeeId;
+    }
     final itemUri = Uri.parse(
       '${_config.uploadBase}/api/v1/picking-lists/items/test',
-    ).replace(
-      queryParameters: {
-        'employeeNo': employeeId,
-        'sd_no': sdNo,
-      },
-    );
+    ).replace(queryParameters: params);
 
-    final itemResp = await _client.get(itemUri);
+    final itemResp = await _client.get(itemUri, headers: _headers());
+    _checkUnauthorized(itemResp);
     if (itemResp.statusCode < 200 || itemResp.statusCode >= 300) {
       throw Exception('Items $sdNo API ${itemResp.statusCode}: ${itemResp.body}');
     }
@@ -110,5 +278,30 @@ class PickListService {
     }
     throw Exception('$context unexpected response type: ${body.runtimeType}');
   }
+}
+
+/// 今日揀貨單總量（GET /main/summary）
+class MainSummary {
+  MainSummary({required this.totalSheets, required this.totalEntries});
+  final int totalSheets;
+  final int totalEntries;
+}
+
+/// 我今日已領／已完成（GET /my-today）
+class MyTodayResponse {
+  MyTodayResponse({
+    required this.lockedCount,
+    required this.completedCount,
+    required this.lockedList,
+  });
+  final int lockedCount;
+  final int completedCount;
+  final List<LockedEntry> lockedList;
+}
+
+class LockedEntry {
+  LockedEntry({required this.sdNo, required this.lockedAt});
+  final String sdNo;
+  final int lockedAt;
 }
 
