@@ -138,7 +138,7 @@ class PickListMain {
   String? get pkAreaText => _label(pkAreaFlg, pkAreaLabels);
 
   factory PickListMain.fromJson(Map<String, dynamic> json) {
-    DateTime? _parseDate(dynamic value) {
+    DateTime? parseDate(dynamic value) {
       if (value == null) return null;
       if (value is DateTime) return value;
       final text = value.toString();
@@ -146,7 +146,7 @@ class PickListMain {
       return DateTime.tryParse(text);
     }
 
-    num? _parseNum(dynamic value) {
+    num? parseNum(dynamic value) {
       if (value == null || value.toString().isEmpty) return null;
       return num.tryParse(value.toString());
     }
@@ -167,24 +167,24 @@ class PickListMain {
       ctGmFlg: _asString(json['ct_gm_flg']),
       useAirbagFlg: _asString(json['use_airbag_flg']),
       repackageFlg: _asString(json['repackage_flg']),
-      ttlMustQty: _parseNum(json['ttl_must_qty']),
-      spCnt: _parseNum(json['sp_cnt']),
-      ttlMustPQty: _parseNum(json['ttl_must_p_qty']),
-      ttlMustEQty: _parseNum(json['ttl_must_e_qty']),
+      ttlMustQty: parseNum(json['ttl_must_qty']),
+      spCnt: parseNum(json['sp_cnt']),
+      ttlMustPQty: parseNum(json['ttl_must_p_qty']),
+      ttlMustEQty: parseNum(json['ttl_must_e_qty']),
       pkAreaFlg: _asString(json['pk_area_flg']),
-      aPageCnt: _parseNum(json['a_page_cnt']),
-      bPageCnt: _parseNum(json['b_page_cnt']),
-      ttlPageCnt: _parseNum(json['ttl_page_cnt']),
-      crtTime: _parseDate(json['crt_time']),
-      mdfTime: _parseDate(json['mdf_time']),
-      prtTime: _parseDate(json['prt_time']),
-      finTime: _parseDate(json['fin_time']),
-      delTime: _parseDate(json['del_time']),
-      prtCnt: _parseNum(json['prt_cnt']),
+      aPageCnt: parseNum(json['a_page_cnt']),
+      bPageCnt: parseNum(json['b_page_cnt']),
+      ttlPageCnt: parseNum(json['ttl_page_cnt']),
+      crtTime: parseDate(json['crt_time']),
+      mdfTime: parseDate(json['mdf_time']),
+      prtTime: parseDate(json['prt_time']),
+      finTime: parseDate(json['fin_time']),
+      delTime: parseDate(json['del_time']),
+      prtCnt: parseNum(json['prt_cnt']),
       spDspsFlg: _asString(json['sp_dsps_flg']),
-      spDspsTime: _parseDate(json['sp_dsps_time']),
+      spDspsTime: parseDate(json['sp_dsps_time']),
       exportFlg: _asString(json['export_flg']),
-      exportTime: _parseDate(json['export_time']),
+      exportTime: parseDate(json['export_time']),
       qcFlg: _asString(json['qc_flg']),
       selFlg: _asString(json['sel_flg']),
     );

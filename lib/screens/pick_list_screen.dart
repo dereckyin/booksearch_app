@@ -389,11 +389,11 @@ class _PickMainCard extends StatelessWidget {
                                   ? Theme.of(context)
                                       .colorScheme
                                       .errorContainer
-                                      .withOpacity(0.6)
+                                      .withAlpha(153)
                                   : Theme.of(context)
                                       .colorScheme
                                       .primaryContainer
-                                      .withOpacity(0.8),
+                                      .withAlpha(204),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -446,24 +446,23 @@ class _ShelfRatingStars extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = enabled
         ? (Theme.of(context).colorScheme.primary)
-        : Theme.of(context).colorScheme.onSurface.withOpacity(0.35);
+        : Theme.of(context).colorScheme.onSurface.withAlpha(89);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(5, (index) {
         final value = index + 1;
         return IconButton(
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+          padding: EdgeInsets.zero,
+          iconSize: 18,
           icon: Icon(
             value <= rating ? Icons.star : Icons.star_border,
             color: color,
-            size: 22,
           ),
           onPressed: enabled && onChanged != null
               ? () => onChanged!(value)
               : null,
-          style: IconButton.styleFrom(
-            minimumSize: const Size(32, 32),
-            padding: EdgeInsets.zero,
-          ),
         );
       }),
     );
@@ -504,9 +503,6 @@ class _PickCard extends StatelessWidget {
         : (item.orgProdId != null && item.orgProdId!.isNotEmpty
             ? '店內碼: ${item.orgProdId}'
             : null);
-    final sdLabel = (item.sdNo != null && item.sdNo!.isNotEmpty)
-        ? '撿貨單：${item.sdNo}'
-        : null;
     final logcodeLabel = (item.logcode != null && item.logcode!.isNotEmpty)
         ? '物流條碼: ${item.logcode}'
         : null;
@@ -515,13 +511,13 @@ class _PickCard extends StatelessWidget {
     final seqLabel =
         (item.seqNum != null && item.seqNum!.isNotEmpty) ? '左至右第: ${item.seqNum}' : null;
 
-    Future<void> _showPreview(ImageProvider provider) async {
-      await showDialog(
+    Future<void> showPreview(ImageProvider provider) async {
+      await showDialog<void>(
         context: context,
-        builder: (_) => GestureDetector(
+        builder: (context) => GestureDetector(
           onTap: () => Navigator.of(context).pop(),
           child: Container(
-            color: Colors.black.withOpacity(0.9),
+            color: Colors.black.withAlpha(230),
             alignment: Alignment.center,
             child: InteractiveViewer(
               child: Image(
@@ -534,7 +530,7 @@ class _PickCard extends StatelessWidget {
       );
     }
 
-    Widget _image() {
+    Widget buildImage() {
       if (item.imageUrl.trim().isEmpty) {
         return Container(
           color: Colors.grey.shade200,
@@ -546,7 +542,7 @@ class _PickCard extends StatelessWidget {
           ? item.imageUrl
           : Uri.parse(ApiConfig().uploadBase).resolve(item.imageUrl).toString();
       return GestureDetector(
-        onTap: () => _showPreview(NetworkImage(url)),
+        onTap: () => showPreview(NetworkImage(url)),
         child: Image.network(
           url,
           fit: BoxFit.cover,
@@ -571,7 +567,7 @@ class _PickCard extends StatelessWidget {
       );
     }
 
-    Widget _mockShelf() {
+    Widget buildShelfMock() {
       ImageProvider? provider;
       String? urlString;
       if (item.overlayUrl != null && item.overlayUrl!.isNotEmpty) {
@@ -590,7 +586,8 @@ class _PickCard extends StatelessWidget {
         } catch (_) {}
       }
 
-      if (provider == null) {
+      final shelfProvider = provider;
+      if (shelfProvider == null) {
         return Container(
           color: Colors.grey.shade200,
           alignment: Alignment.center,
@@ -599,12 +596,12 @@ class _PickCard extends StatelessWidget {
       }
 
       return GestureDetector(
-        onTap: () => _showPreview(provider!),
-        child: provider is NetworkImage
+        onTap: () => showPreview(shelfProvider),
+        child: shelfProvider is NetworkImage
             ? Image.network(
-                urlString!,
+                shelfProvider.url,
                 fit: BoxFit.cover,
-                key: urlString != null ? ValueKey(urlString) : null,
+                key: ValueKey(shelfProvider.url),
                 loadingBuilder: (context, child, loadingProgress) {
                   if (loadingProgress == null) return child;
                   return Container(
@@ -636,9 +633,9 @@ class _PickCard extends StatelessWidget {
                 ),
               )
             : Image(
-                image: provider!,
+                image: shelfProvider,
                 fit: BoxFit.cover,
-                key: urlString != null ? ValueKey(urlString) : null,
+                // Data-url based image has no stable URL; omit key.
                 errorBuilder: (context, error, stackTrace) => Container(
                   color: Colors.grey.shade200,
                   alignment: Alignment.center,
@@ -652,10 +649,10 @@ class _PickCard extends StatelessWidget {
     Color? cardColor;
     Color borderColor = Colors.transparent;
     if (completed) {
-      cardColor = colors.primary.withOpacity(0.08);
+      cardColor = colors.primary.withAlpha(20);
       borderColor = colors.primary;
     } else if (notFound) {
-      cardColor = colors.errorContainer.withOpacity(0.6);
+      cardColor = colors.errorContainer.withAlpha(153);
       borderColor = colors.error;
     }
 
@@ -679,7 +676,7 @@ class _PickCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                        color: Theme.of(context).colorScheme.primary.withAlpha(31),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -703,12 +700,12 @@ class _PickCard extends StatelessWidget {
               // 櫃位現場圖置於上方，橫向鋪滿
               AspectRatio(
                 aspectRatio: 16 / 9,
-                child: _mockShelf(),
+                child: buildShelfMock(),
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  SizedBox(width: 120, height: 150, child: _image()),
+                  SizedBox(width: 120, height: 150, child: buildImage()),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -744,13 +741,13 @@ class _PickCard extends StatelessWidget {
                                     color: Theme.of(context)
                                         .colorScheme
                                         .errorContainer
-                                        .withOpacity(0.8),
+                                        .withAlpha(204),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
                                       color: Theme.of(context)
                                           .colorScheme
                                           .error
-                                          .withOpacity(0.6),
+                                          .withAlpha(153),
                                       width: 1.5,
                                     ),
                                   ),
@@ -928,6 +925,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       await _service.unlock(widget.main.sdNo);
       if (!mounted) return;
       await _clearProgress();
+      if (!mounted) return;
       widget.onUnlockAndPop?.call();
       Navigator.of(context).pop();
     } catch (e) {
@@ -1090,31 +1088,11 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       );
     }
 
-    final subtitleParts = [
-      widget.main.statusText ?? widget.main.statusFlg,
-      widget.main.deliverText ?? widget.main.deliver,
-    ].whereType<String>().where((e) => e.isNotEmpty).join(' / ');
-
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!_loading && _items.isNotEmpty) ...[
-            SelectableText(
-              widget.main.sdNo,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            if (subtitleParts.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  subtitleParts,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            const SizedBox(height: 10),
-          ],
           Row(
             children: [
               Expanded(
@@ -1147,33 +1125,38 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                '找不到：$totalNotFound',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-          if (isItemView && filtered.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '項目 ${_currentVisibleIndex + 1} / ${filtered.length}',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
+          SizedBox(
+            height: 32,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '找不到：$totalNotFound',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
-              ),
+                if (isItemView && filtered.isNotEmpty)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '項目 ${_currentVisibleIndex + 1} / ${filtered.length}',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(height: 6),
-          ],
+          ),
           const SizedBox(height: 8),
           Expanded(
             child: isItemView
@@ -1300,7 +1283,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                     ..._cannotPickReasons.map((r) => RadioListTile<String>(
                           value: r,
                           title: Text(r),
+                          // ignore: deprecated_member_use
                           groupValue: selected,
+                          // ignore: deprecated_member_use
                           onChanged: (v) => setState(() => selected = v ?? selected),
                         )),
                     const SizedBox(height: 16),

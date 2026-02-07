@@ -31,7 +31,6 @@ class _HomeShellState extends State<HomeShell> {
   bool _captureUiVisible = false;
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
-  static const _uploadTabIndex = 2;
   static const _captureOrientations = [
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:uuid/uuid.dart';
 
 import '../models/capture_record.dart';
 import '../services/capture_queue.dart';
@@ -33,15 +32,9 @@ class _CaptureScreenState extends State<CaptureScreen>
   String _status = '準備就緒';
   // Default photo quality: "佳" -> use a higher resolution preset.
   final ResolutionPreset _resolutionPreset = ResolutionPreset.high;
-  FlashMode _flashMode = FlashMode.auto;
-  double _minZoom = 1.0;
-  double _maxZoom = 1.0;
-  double _currentZoom = 1.0;
-  static const double _zoomStep = 0.2;
-  final _uuid = const Uuid();
+  final FlashMode _flashMode = FlashMode.auto;
   final _queue = CaptureQueue.instance;
   final _uploadService = UploadService();
-  List<CaptureRecord> _captures = [];
   final String _shelfId = 'shelf-demo';
 
   @override
@@ -72,7 +65,6 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   Future<void> _initFlow() async {
     await _ensurePermissions();
-    await _loadQueue();
     await _initCamera();
     setState(() {
       _initializing = false;
@@ -109,27 +101,15 @@ class _CaptureScreenState extends State<CaptureScreen>
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
-      final minZoom = await controller.getMinZoomLevel();
-      final maxZoom = await controller.getMaxZoomLevel();
-      final initialZoom = minZoom.clamp(minZoom, maxZoom).toDouble();
-      await controller.setZoomLevel(initialZoom);
       await controller.setFlashMode(_flashMode);
       if (!mounted) return;
       setState(() {
         _cameraController = controller;
         _status = '相機已就緒';
-        _minZoom = minZoom;
-        _maxZoom = maxZoom;
-        _currentZoom = initialZoom;
       });
     } catch (e) {
       setState(() => _status = '相機初始化失敗: $e');
     }
-  }
-
-  Future<void> _loadQueue() async {
-    final items = await _queue.listAll();
-    setState(() => _captures = items);
   }
 
   Future<void> _capture() async {
@@ -161,7 +141,6 @@ class _CaptureScreenState extends State<CaptureScreen>
       );
       if (!mounted) return;
       if (uploaded == true) {
-        await _loadQueue();
         setState(() => _status = '已上傳，等待同步');
         _processPendingUploads();
       } else {
@@ -184,7 +163,6 @@ class _CaptureScreenState extends State<CaptureScreen>
     final pending = await _queue.pending();
     for (final record in pending) {
       await _queue.updateStatus(record.id, CaptureStatus.uploading);
-      await _loadQueue();
       try {
         final file = File(record.localPath);
         final upload = await _uploadService.uploadFile(
@@ -213,59 +191,10 @@ class _CaptureScreenState extends State<CaptureScreen>
         );
         setState(() => _status = '上傳失敗: $e');
       }
-      await _loadQueue();
     }
   }
 
-  Future<void> _setFlash(FlashMode mode) async {
-    if (_cameraController == null) return;
-    await _cameraController!.setFlashMode(mode);
-    setState(() => _flashMode = mode);
-  }
-
-  Future<void> _setZoom(double zoom) async {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return;
-    final clamped = zoom.clamp(_minZoom, _maxZoom).toDouble();
-    try {
-      await controller.setZoomLevel(clamped);
-      setState(() => _currentZoom = clamped);
-    } catch (e) {
-      setState(() => _status = '縮放設定失敗: $e');
-    }
-  }
-
-  void _stepZoom(double delta) {
-    _setZoom(_currentZoom + delta);
-  }
-
-  String _flashLabel(FlashMode mode) {
-    switch (mode) {
-      case FlashMode.off:
-        return '關閉';
-      case FlashMode.auto:
-        return '自動';
-      case FlashMode.always:
-        return '常亮';
-      case FlashMode.torch:
-        return '手電筒';
-    }
-  }
-
-  String _statusLabel(CaptureStatus status) {
-    switch (status) {
-      case CaptureStatus.pending:
-        return '待上傳';
-      case CaptureStatus.uploading:
-        return '上傳中';
-      case CaptureStatus.done:
-        return '已完成';
-      case CaptureStatus.failed:
-        return '失敗';
-    }
-  }
-
-  Widget _AspectCameraPreview(CameraController controller) {
+  Widget _aspectCameraPreview(CameraController controller) {
     final aspect = controller.value.aspectRatio;
     return ColoredBox(
       color: Colors.black,
@@ -309,7 +238,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                       children: [
                         if (controller != null &&
                             controller.value.isInitialized)
-                          _AspectCameraPreview(controller)
+                          _aspectCameraPreview(controller)
                         else
                           Container(color: Colors.black12),
                         CaptureOverlay(showGrid: false, label: _status),

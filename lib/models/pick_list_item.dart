@@ -37,7 +37,7 @@ class PickListItem {
     Map<String, dynamic> json, {
     PickListMain? main,
   }) {
-    num? _parseNum(dynamic value) {
+    num? parseNum(dynamic value) {
       if (value == null) return null;
       final text = value.toString();
       if (text.isEmpty) return null;
@@ -49,11 +49,12 @@ class PickListItem {
     final orgProdId = '${json['orgProdId'] ?? json['org_prod_id'] ?? ''}';
     final titleMain = '${json['title_main'] ?? ''}';
     final logcode = '${json['logcode'] ?? json['log_code'] ?? ''}';
-    final mustQty = _parseNum(json['must_qty'] ?? json['mustQty']);
+    final mustQty = parseNum(json['must_qty'] ?? json['mustQty']);
     String overlayDataUrl = '${json['overlay_data_url'] ?? ''}'.trim();
     String overlayUrl = '${json['overlay_url'] ?? ''}'.trim();
-    String seqNum = '${json['seq_num'] ?? json['seqno'] ?? json['seqNum'] ?? ''}'.trim();
-    String total_books = '${json['total_books'] ?? ''}'.trim();
+    String seqNum =
+        '${json['seq_num'] ?? json['seqno'] ?? json['seqNum'] ?? ''}'.trim();
+    String totalBooks = '${json['total_books'] ?? ''}'.trim();
 
     final imageMap = json['image'];
     String imageName = '${json['image_name'] ?? ''}'.trim();
@@ -61,14 +62,14 @@ class PickListItem {
       overlayUrl = '${imageMap['overlay_url'] ?? overlayUrl}'.trim();
       overlayDataUrl = '${imageMap['overlay_data_url'] ?? overlayDataUrl}'.trim();
       seqNum = '${imageMap['seq_num'] ?? imageMap['seqno'] ?? seqNum}'.trim();
-      total_books = '${imageMap['total_books'] ?? total_books}'.trim();
+      totalBooks = '${imageMap['total_books'] ?? totalBooks}'.trim();
       imageName = '${imageMap['image_name'] ?? imageName}'.trim();
     }
     // 櫃位現場圖：優先 overlay_url，沒有則用 image_name 組 temp-images 路徑
     if (overlayUrl.isEmpty && imageName.isNotEmpty) {
       final q = <String>[];
       if (seqNum.isNotEmpty) q.add('seq=$seqNum');
-      if (total_books.isNotEmpty) q.add('total_books=$total_books');
+      if (totalBooks.isNotEmpty) q.add('total_books=$totalBooks');
       overlayUrl = q.isEmpty
           ? '/api/v1/picking-lists/temp-images/$imageName'
           : '/api/v1/picking-lists/temp-images/$imageName?${q.join('&')}';

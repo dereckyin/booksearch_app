@@ -22,7 +22,7 @@ class _UploadGalleryScreenState extends State<UploadGalleryScreen> {
   Future<void> _pickImages() async {
     try {
       final picked = await _picker.pickMultiImage(imageQuality: 90);
-      if (picked == null || picked.isEmpty) return;
+      if (picked.isEmpty) return;
       setState(() {
         _files = picked;
         _status = '已選擇 ${picked.length} 張';
