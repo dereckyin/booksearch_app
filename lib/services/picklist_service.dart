@@ -183,6 +183,43 @@ class PickListService {
     throw Exception('揀不到回報失敗 ${resp.statusCode}: ${resp.body}');
   }
 
+  /// 櫃位現場圖評分（feedback）：POST /api/v1/picking-lists/shelf-feedback
+  ///
+  /// **後端開發規格**
+  /// - 路徑：POST /api/v1/picking-lists/shelf-feedback
+  /// - Header：Authorization: Bearer {token}、Content-Type: application/json
+  /// - Body：{ "sd_no": "1234567890123(A)", "prod_id": "xxx", "rk_id": "櫃號", "rank": 5 }
+  ///   - sd_no：揀貨單號（含區別）
+  ///   - prod_id：商品／品項 ID
+  ///   - rk_id：櫃號
+  ///   - rank：評分 1～5（整數，5 為最滿意）
+  /// - 成功 (200)：{ "success": true } 或 { "success": true, "message": "..." }
+  /// - 失敗：4xx/5xx 依既有慣例回傳
+  Future<void> submitShelfFeedback({
+    required String sdNo,
+    required String prodId,
+    required String rkId,
+    required int rank,
+  }) async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/shelf-feedback',
+    );
+    final body = <String, dynamic>{
+      'sd_no': sdNo,
+      'prod_id': prodId,
+      'rk_id': rkId,
+      'rank': rank.clamp(1, 5),
+    };
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode(body),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    throw Exception('櫃位評分送出失敗 ${resp.statusCode}: ${resp.body}');
+  }
+
   Future<List<PickerInfo>> fetchPickersToday() async {
     final uri = Uri.parse(
       '${_config.uploadBase}/api/v1/picking-lists/pickers/today',

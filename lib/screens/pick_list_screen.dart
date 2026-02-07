@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/api_config.dart';
 import '../models/pick_list_item.dart';
@@ -427,18 +430,64 @@ class _PickMainCard extends StatelessWidget {
   }
 }
 
+/// 五顆星評分，預設五星；無現場圖時 disabled（灰色、不可點）
+class _ShelfRatingStars extends StatelessWidget {
+  const _ShelfRatingStars({
+    required this.rating,
+    this.enabled = true,
+    this.onChanged,
+  });
+
+  final int rating;
+  final bool enabled;
+  final void Function(int)? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = enabled
+        ? (Theme.of(context).colorScheme.primary)
+        : Theme.of(context).colorScheme.onSurface.withOpacity(0.35);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (index) {
+        final value = index + 1;
+        return IconButton(
+          icon: Icon(
+            value <= rating ? Icons.star : Icons.star_border,
+            color: color,
+            size: 22,
+          ),
+          onPressed: enabled && onChanged != null
+              ? () => onChanged!(value)
+              : null,
+          style: IconButton.styleFrom(
+            minimumSize: const Size(32, 32),
+            padding: EdgeInsets.zero,
+          ),
+        );
+      }),
+    );
+  }
+}
+
 class _PickCard extends StatelessWidget {
   const _PickCard({
     required this.item,
     this.onTap,
     this.completed = false,
     this.notFound = false,
+    this.hasShelfImage = false,
+    this.shelfRating = 5,
+    this.onShelfRatingChanged,
   });
 
   final PickListItem item;
   final VoidCallback? onTap;
   final bool completed;
   final bool notFound;
+  final bool hasShelfImage;
+  final int shelfRating;
+  final void Function(int)? onShelfRatingChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -624,19 +673,31 @@ class _PickCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  shelfLabel,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: Theme.of(context).colorScheme.primary,
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                ),
+                      child: Text(
+                        shelfLabel,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _ShelfRatingStars(
+                    rating: shelfRating,
+                    enabled: hasShelfImage,
+                    onChanged: onShelfRatingChanged,
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
               // 櫃位現場圖置於上方，橫向鋪滿
@@ -755,6 +816,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   List<PickListItem> _items = [];
   Set<String> _completed = {};
   Set<String> _notFound = {};
+  final Map<String, int> _shelfRatings = {}; // itemKey -> 1..5，預設 5
   int _currentVisibleIndex = 0;
   bool _showCompleted = false;
   bool _loading = true;
@@ -775,6 +837,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     super.dispose();
   }
 
+  static String _progressKey(String sdNo) =>
+      'pick_list_progress_${sdNo.replaceAll(RegExp(r'[^\w\-]'), '_')}';
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -787,11 +852,18 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         main: widget.main,
       );
       if (!mounted) return;
+      final itemKeys = data.map((e) => _itemKeyForItem(e)).toSet();
+      final (completed, notFound) = await _restoreProgress(
+        widget.main.sdNo,
+        itemKeys,
+      );
+      if (!mounted) return;
       setState(() {
         _items = data;
         _currentVisibleIndex = 0;
         _loading = false;
-        _notFound.clear();
+        _completed = completed;
+        _notFound = notFound;
       });
     } catch (e) {
       if (!mounted) return;
@@ -802,10 +874,60 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     }
   }
 
+  static String _itemKeyForItem(PickListItem item) =>
+      '${item.id}-${item.seqNum ?? ''}-${item.productId}';
+
+  Future<(Set<String>, Set<String>)> _restoreProgress(
+    String sdNo,
+    Set<String> validKeys,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = prefs.getString(_progressKey(sdNo));
+      if (json == null) return (<String>{}, <String>{});
+      final map = jsonDecode(json) as Map<String, dynamic>?;
+      if (map == null) return (<String>{}, <String>{});
+      final completed = (map['completed'] as List<dynamic>?)
+              ?.whereType<String>()
+              .where(validKeys.contains)
+              .toSet() ??
+          <String>{};
+      final notFound = (map['notFound'] as List<dynamic>?)
+              ?.whereType<String>()
+              .where(validKeys.contains)
+              .toSet() ??
+          <String>{};
+      return (completed, notFound);
+    } catch (_) {
+      return (<String>{}, <String>{});
+    }
+  }
+
+  Future<void> _persistProgress() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _progressKey(widget.main.sdNo),
+        jsonEncode({
+          'completed': _completed.toList(),
+          'notFound': _notFound.toList(),
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _clearProgress() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_progressKey(widget.main.sdNo));
+    } catch (_) {}
+  }
+
   Future<void> _finishAndLeave() async {
     try {
       await _service.unlock(widget.main.sdNo);
       if (!mounted) return;
+      await _clearProgress();
       widget.onUnlockAndPop?.call();
       Navigator.of(context).pop();
     } catch (e) {
@@ -818,23 +940,13 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final subtitleParts = [
-      widget.main.statusText ?? widget.main.statusFlg,
-      widget.main.deliverText ?? widget.main.deliver,
-    ].whereType<String>().where((e) => e.isNotEmpty).join(' / ');
-
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('揀貨單 ${widget.main.sdNo}'),
-            if (subtitleParts.isNotEmpty)
-              Text(
-                subtitleParts,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-          ],
+        title: Text(
+          '揀貨單 ${widget.main.sdNo}',
+          style: Theme.of(context).textTheme.titleSmall,
+          maxLines: 2,
+          overflow: TextOverflow.visible,
         ),
         actions: [
           TextButton.icon(
@@ -915,6 +1027,11 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                   final key = _itemKey(pageItem);
                   final completed = _completed.contains(key);
                   final notFound = _notFound.contains(key);
+                  final itemKey = _itemKey(pageItem);
+                  final hasShelfImage = (pageItem.overlayUrl != null &&
+                          pageItem.overlayUrl!.isNotEmpty) ||
+                      (pageItem.overlayDataUrl != null &&
+                          pageItem.overlayDataUrl!.isNotEmpty);
                   return SizedBox.expand(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -923,6 +1040,11 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                         onTap: () {},
                         completed: completed,
                         notFound: notFound,
+                        hasShelfImage: hasShelfImage,
+                        shelfRating: _shelfRatings[itemKey] ?? 5,
+                        onShelfRatingChanged: hasShelfImage
+                            ? (v) => _onShelfRatingChanged(pageItem, v)
+                            : null,
                       ),
                     ),
                   );
@@ -963,20 +1085,36 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            '項目 ${_currentVisibleIndex + 1}/${filtered.length}',
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
         ],
         ),
       );
     }
 
+    final subtitleParts = [
+      widget.main.statusText ?? widget.main.statusFlg,
+      widget.main.deliverText ?? widget.main.deliver,
+    ].whereType<String>().where((e) => e.isNotEmpty).join(' / ');
+
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (!_loading && _items.isNotEmpty) ...[
+            SelectableText(
+              widget.main.sdNo,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            if (subtitleParts.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  subtitleParts,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            const SizedBox(height: 10),
+          ],
           Row(
             children: [
               Expanded(
@@ -1009,14 +1147,34 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              '找不到：$totalNotFound',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+          Row(
+            children: [
+              Text(
+                '找不到：$totalNotFound',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          if (isItemView && filtered.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '項目 ${_currentVisibleIndex + 1} / ${filtered.length}',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
+          const SizedBox(height: 8),
           Expanded(
             child: isItemView
                 ? content
@@ -1062,6 +1220,25 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         _currentVisibleIndex = filtered.isEmpty ? 0 : filtered.length - 1;
       }
     });
+    _persistProgress();
+  }
+
+  Future<void> _onShelfRatingChanged(PickListItem item, int rank) async {
+    final key = _itemKey(item);
+    setState(() => _shelfRatings[key] = rank);
+    try {
+      await _service.submitShelfFeedback(
+        sdNo: widget.main.sdNo,
+        prodId: item.productId,
+        rkId: item.rkId ?? item.id,
+        rank: rank,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('評分送出失敗: $e')),
+      );
+    }
   }
 
   Future<void> _markNotFound(PickListItem item) async {
@@ -1071,6 +1248,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         _notFound.remove(key);
         _completed.remove(key);
       });
+      _persistProgress();
       return;
     }
     final reason = await _showCannotPickDialog();
@@ -1088,6 +1266,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         _notFound.add(key);
         _completed.remove(key);
       });
+      _persistProgress();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已紀錄揀不到／異常')),
       );
@@ -1161,8 +1340,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     return result;
   }
 
-  String _itemKey(PickListItem item) =>
-      '${item.id}-${item.seqNum ?? ''}-${item.productId}';
+  String _itemKey(PickListItem item) => _itemKeyForItem(item);
 
   List<int> _filteredIndexes() {
     final result = <int>[];
