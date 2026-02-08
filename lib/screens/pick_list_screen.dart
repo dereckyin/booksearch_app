@@ -801,7 +801,7 @@ class PickListItemsScreen extends StatefulWidget {
   final PickListMain main;
   final String employeeId;
   final PickListService? service;
-  /// 完成並離開（unlock）後呼叫，例如刷新列表
+  /// 完成至待驗收（unlock）後呼叫，例如刷新列表
   final VoidCallback? onUnlockAndPop;
 
   @override
@@ -950,7 +950,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           TextButton.icon(
             onPressed: _loading ? null : _finishAndLeave,
             icon: const Icon(Icons.lock_open, size: 20),
-            label: const Text('完成並離開'),
+            label: const Text('完成至待驗收'),
           ),
         ],
       ),
