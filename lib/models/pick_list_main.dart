@@ -8,6 +8,7 @@ class PickListMain {
     this.lockStatus,
     this.area,
     this.lockedByPhone,
+    this.lockedByName,
     this.companyId,
     this.deliver,
     this.cnno,
@@ -44,6 +45,7 @@ class PickListMain {
   final String? lockStatus;
   final String? area;
   final String? lockedByPhone;
+  final String? lockedByName;
   final String? companyId;
   final String? deliver;
   final String? cnno;
@@ -156,9 +158,10 @@ class PickListMain {
       sdNo: sdNo,
       whId: _asString(json['wh_id']),
       statusFlg: _asString(json['status_flg']),
-      lockStatus: _asString(json['lock_status']),
+      lockStatus: _asString(json['lock_status'] ?? json['lockStatus']),
       area: _asString(json['area']),
       lockedByPhone: _asString(json['locked_by_phone']),
+      lockedByName: _asString(json['locked_by_name']),
       companyId: _asString(json['company_id']),
       deliver: _asString(json['deliver']),
       cnno: _asString(json['cnno']),

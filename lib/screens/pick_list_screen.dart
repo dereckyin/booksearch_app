@@ -65,7 +65,7 @@ class _PickListScreenState extends State<PickListScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 4,
       initialIndex: 0,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -74,8 +74,10 @@ class _PickListScreenState extends State<PickListScreen> {
             labelStyle: Theme.of(context).textTheme.labelMedium,
             unselectedLabelStyle: Theme.of(context).textTheme.labelSmall,
             tabs: const [
-              Tab(text: '未完成'),
-              Tab(text: '已完成'),
+              Tab(text: '未撿貨'),
+              Tab(text: '撿貨中'),
+              Tab(text: '撿貨完'),
+              Tab(text: '可分貨'),
             ],
           ),
           Expanded(
@@ -125,16 +127,32 @@ class _PickListScreenState extends State<PickListScreen> {
                           : TabBarView(
                               children: [
                                 _MainList(
-                                  mains: grouped['未完成']!,
-                                  emptyText: '目前沒有未完成的揀貨單',
+                                  mains: grouped['未撿貨']!,
+                                  emptyText: '目前沒有未撿貨的揀貨單',
                                   service: _service,
                                   onTap: _openItems,
                                   onUnlock: _onUnlock,
                                   onRefresh: _reload,
                                 ),
                                 _MainList(
-                                  mains: grouped['已完成']!,
-                                  emptyText: '目前沒有已完成的揀貨單',
+                                  mains: grouped['撿貨中']!,
+                                  emptyText: '目前沒有撿貨中的揀貨單',
+                                  service: _service,
+                                  onTap: _openItems,
+                                  onUnlock: _onUnlock,
+                                  onRefresh: _reload,
+                                ),
+                                _MainList(
+                                  mains: grouped['撿貨完']!,
+                                  emptyText: '目前沒有撿貨完成的揀貨單',
+                                  service: _service,
+                                  onTap: _openItems,
+                                  onUnlock: _onUnlock,
+                                  onRefresh: _reload,
+                                ),
+                                _MainList(
+                                  mains: grouped['可分貨']!,
+                                  emptyText: '目前沒有可分貨的揀貨單',
                                   service: _service,
                                   onTap: _openItems,
                                   onUnlock: _onUnlock,
@@ -155,12 +173,29 @@ class _PickListScreenState extends State<PickListScreen> {
 
   Map<String, List<PickListMain>> _groupMainByStatus(List<PickListMain> mains) {
     final Map<String, List<PickListMain>> result = {
-      '未完成': [],
-      '已完成': [],
+      '未撿貨': [],
+      '撿貨中': [],
+      '撿貨完': [],
+      '可分貨': [],
     };
     for (final m in mains) {
-      final done = (m.statusFlg ?? '').toUpperCase() == 'Y';
-      (done ? result['已完成']! : result['未完成']!).add(m);
+      final lock = (m.lockStatus ?? '').trim().toLowerCase();
+      final isAvailable = lock == 'available';
+      final isPicking = lock == 'locked_by_me' || lock == 'locked_by_other';
+      final isCompletedToPending = (m.statusFlg ?? '').toUpperCase() == 'Y';
+
+      // 可領取優先：只要 lock_status 為 available，一律放入 未撿貨（不依 statusFlg）
+      if (isAvailable) {
+        result['未撿貨']!.add(m);
+      } else if (isPicking) {
+        result['撿貨中']!.add(m);
+      } else if (isCompletedToPending) {
+        result['撿貨完']!.add(m);
+      } else {
+        // 其餘（空值或未知 lock）→ 未撿貨
+        result['未撿貨']!.add(m);
+      }
+      // 可分貨 先暫時空白
     }
     return result;
   }
@@ -237,7 +272,7 @@ class _TodaySummaryCard extends StatelessWidget {
     }
     if (myToday != null) {
       parts.add('進行中 ${myToday!.lockedCount}');
-      parts.add('已完成 ${myToday!.completedCount}');
+      parts.add('撿貨完 ${myToday!.completedCount}');
     }
     if (parts.isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -331,16 +366,22 @@ class _PickMainCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onUnlock;
 
-  static String _lockStatusLabel(String? status) {
-    switch ((status ?? '').toLowerCase()) {
+  /// 他人揀選中時：有 locked_by_name 顯示「XXX 揀選中」，否則退為 locked_by_phone 或「他人揀選中」
+  static String _lockStatusLabel(PickListMain main) {
+    final status = (main.lockStatus ?? '').toLowerCase();
+    switch (status) {
       case 'available':
         return '可領取';
       case 'locked_by_me':
         return '我揀選中';
       case 'locked_by_other':
+        final name = main.lockedByName?.trim();
+        if (name != null && name.isNotEmpty) return '$name 揀選中';
+        final phone = main.lockedByPhone?.trim();
+        if (phone != null && phone.isNotEmpty) return '$phone 揀選中';
         return '他人揀選中';
       default:
-        return status?.isNotEmpty == true ? status! : '';
+        return main.lockStatus?.isNotEmpty == true ? main.lockStatus! : '';
     }
   }
 
@@ -397,7 +438,7 @@ class _PickMainCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              _lockStatusLabel(status),
+                              _lockStatusLabel(main),
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
                           ),
@@ -469,6 +510,93 @@ class _ShelfRatingStars extends StatelessWidget {
   }
 }
 
+/// 本張揀貨單所有櫃號的時間軸，標示目前進行到哪一櫃；會隨目前櫃號捲動以保持同步
+class _ShelfTimeline extends StatefulWidget {
+  const _ShelfTimeline({
+    required this.labels,
+    required this.currentIndex,
+  });
+
+  final List<String> labels;
+  final int currentIndex;
+
+  @override
+  State<_ShelfTimeline> createState() => _ShelfTimelineState();
+}
+
+class _ShelfTimelineState extends State<_ShelfTimeline> {
+  final GlobalKey _currentKey = GlobalKey();
+
+  @override
+  void didUpdateWidget(covariant _ShelfTimeline oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentIndex != widget.currentIndex) {
+      _scrollToCurrent();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+  }
+
+  void _scrollToCurrent() {
+    final ctx = _currentKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.labels.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    final surface = theme.colorScheme.surfaceContainerHighest;
+    final currentIndex = widget.currentIndex.clamp(0, widget.labels.length - 1);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < widget.labels.length; i++) ...[
+            if (i > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.arrow_forward_ios, size: 12, color: theme.colorScheme.outline),
+              ),
+            Container(
+              key: i == currentIndex ? _currentKey : null,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: i == currentIndex ? primary : surface,
+                borderRadius: BorderRadius.circular(8),
+                border: i == currentIndex
+                    ? Border.all(color: primary, width: 2)
+                    : null,
+              ),
+              child: Text(
+                widget.labels[i],
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: i == currentIndex ? FontWeight.w700 : FontWeight.w500,
+                  color: i == currentIndex ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PickCard extends StatelessWidget {
   const _PickCard({
     required this.item,
@@ -478,6 +606,8 @@ class _PickCard extends StatelessWidget {
     this.hasShelfImage = false,
     this.shelfRating = 5,
     this.onShelfRatingChanged,
+    this.allShelfLabels,
+    this.currentShelfIndex,
   });
 
   final PickListItem item;
@@ -487,6 +617,8 @@ class _PickCard extends StatelessWidget {
   final bool hasShelfImage;
   final int shelfRating;
   final void Function(int)? onShelfRatingChanged;
+  final List<String>? allShelfLabels;
+  final int? currentShelfIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -496,8 +628,8 @@ class _PickCard extends StatelessWidget {
             ? item.titleMain!
             : '未提供品名');
     final shelfLabel = (item.rkId != null && item.rkId!.isNotEmpty)
-        ? '櫃號: ${item.rkId}'
-        : (item.id.isNotEmpty ? '櫃號: ${item.id}' : '櫃號: -');
+        ? item.rkId!
+        : (item.id.isNotEmpty ? item.id : '-');
     final productLabel = (item.productId.isNotEmpty)
         ? '店內碼: ${item.productId}'
         : (item.orgProdId != null && item.orgProdId!.isNotEmpty
@@ -681,7 +813,7 @@ class _PickCard extends StatelessWidget {
                       ),
                       child: Text(
                         shelfLabel,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.w800,
                               color: Theme.of(context).colorScheme.primary,
                             ),
@@ -781,6 +913,14 @@ class _PickCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (allShelfLabels != null &&
+                  currentShelfIndex != null &&
+                  allShelfLabels!.isNotEmpty)
+                _ShelfTimeline(
+                  labels: allShelfLabels!,
+                  currentIndex: currentShelfIndex!
+                      .clamp(0, allShelfLabels!.length - 1),
+                ),
             ],
           ),
         ),
@@ -1030,6 +1170,12 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                           pageItem.overlayUrl!.isNotEmpty) ||
                       (pageItem.overlayDataUrl != null &&
                           pageItem.overlayDataUrl!.isNotEmpty);
+                  final shelfLabels = [
+                    for (var i = 0; i < filtered.length; i++)
+                      _items[filtered[i]].rkId ??
+                          _items[filtered[i]].id ??
+                          '-',
+                  ];
                   return SizedBox.expand(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1043,6 +1189,8 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                         onShelfRatingChanged: hasShelfImage
                             ? (v) => _onShelfRatingChanged(pageItem, v)
                             : null,
+                        allShelfLabels: shelfLabels,
+                        currentShelfIndex: index,
                       ),
                     ),
                   );
