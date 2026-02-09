@@ -9,7 +9,7 @@ class ApiConfig {
   );
 
   bool get isTesting => _env.toLowerCase() == 'production';
-  bool get isProduction => !isTesting;
+  bool get isProduction => _env.toLowerCase() == 'production';
 
   /// Upload API base URL differs by environment.
   String get uploadBase {

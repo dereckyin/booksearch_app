@@ -138,6 +138,9 @@ class _PickListScreenState extends State<PickListScreen>
                       return _TodaySummaryCard(
                         summary: d.summary,
                         myToday: d.myToday,
+                        availableCount: grouped['未撿貨']!.length,
+                        pickingCount: grouped['撿貨中']!.length,
+                        completedCount: grouped['撿貨完']!.length,
                         onRefresh: _reload,
                       );
                     },
@@ -281,20 +284,39 @@ class _SummaryData {
 }
 
 class _TodaySummaryCard extends StatelessWidget {
-  const _TodaySummaryCard({this.summary, this.myToday, this.onRefresh});
+  const _TodaySummaryCard({
+    this.summary,
+    this.myToday,
+    this.availableCount,
+    this.pickingCount,
+    this.completedCount,
+    this.onRefresh,
+  });
 
   final MainSummary? summary;
   final MyTodayResponse? myToday;
+  /// 依新規則分組的數量（未撿貨、撿貨中、撿貨完），有值時優先顯示
+  final int? availableCount;
+  final int? pickingCount;
+  final int? completedCount;
   final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
-    if (summary == null && myToday == null) return const SizedBox.shrink();
+    final useGrouped =
+        availableCount != null || pickingCount != null || completedCount != null;
+    if (summary == null && myToday == null && !useGrouped) {
+      return const SizedBox.shrink();
+    }
     final parts = <String>[];
     if (summary != null) {
       parts.add('今日 ${summary!.totalSheets} 張（${summary!.totalEntries} 筆）');
     }
-    if (myToday != null) {
+    if (useGrouped) {
+      parts.add('未撿貨 ${availableCount ?? 0}');
+      parts.add('撿貨中 ${pickingCount ?? 0}');
+      parts.add('撿貨完 ${completedCount ?? 0}');
+    } else if (myToday != null) {
       parts.add('進行中 ${myToday!.lockedCount}');
       parts.add('撿貨完 ${myToday!.completedCount}');
     }
@@ -395,7 +417,8 @@ class _PickMainCard extends StatelessWidget {
     final status = (main.lockStatus ?? '').toLowerCase();
     switch (status) {
       case 'available':
-        return '可領取';
+        // 撿貨完頁簽中的可領取 → 顯示「可驗收」
+        return (main.statusFlg ?? '').toUpperCase() == 'Y' ? '可驗收' : '可領取';
       case 'locked_by_me':
         return '我揀選中';
       case 'locked_by_other':
