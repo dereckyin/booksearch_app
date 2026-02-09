@@ -5,6 +5,7 @@ class PickListMain {
     required this.sdNo,
     this.whId,
     this.statusFlg,
+    this.pickStage,
     this.lockStatus,
     this.area,
     this.lockedByPhone,
@@ -42,6 +43,8 @@ class PickListMain {
   final String sdNo;
   final String? whId;
   final String? statusFlg;
+  /// Server-side stage for grouping tabs (e.g. picked_done_pending_qc).
+  final String? pickStage;
   final String? lockStatus;
   final String? area;
   final String? lockedByPhone;
@@ -158,6 +161,7 @@ class PickListMain {
       sdNo: sdNo,
       whId: _asString(json['wh_id']),
       statusFlg: _asString(json['status_flg']),
+      pickStage: _asString(json['pick_stage'] ?? json['pickStage']),
       lockStatus: _asString(json['lock_status'] ?? json['lockStatus']),
       area: _asString(json['area']),
       lockedByPhone: _asString(json['locked_by_phone']),

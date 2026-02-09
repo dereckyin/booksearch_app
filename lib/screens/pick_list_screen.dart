@@ -24,16 +24,25 @@ class PickListScreen extends StatefulWidget {
   State<PickListScreen> createState() => _PickListScreenState();
 }
 
-class _PickListScreenState extends State<PickListScreen> {
+class _PickListScreenState extends State<PickListScreen>
+    with SingleTickerProviderStateMixin {
   late final PickListService _service;
   Future<List<PickListMain>>? _futureMain;
   Future<_SummaryData>? _futureSummary;
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? PickListService();
+    _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _load() {
@@ -41,11 +50,22 @@ class _PickListScreenState extends State<PickListScreen> {
       _futureMain = _service.fetchPickListMain();
       _futureSummary = _loadSummary();
     });
-    _futureMain?.then((items) {
-      widget.onCountChanged?.call(
-        items.where((m) => (m.statusFlg ?? '').toUpperCase() != 'Y').length,
-      );
-    }).catchError((_) {});
+    _futureMain
+        ?.then((items) {
+          widget.onCountChanged?.call(
+            items.where((m) => !_isPickStageDone(m)).length,
+          );
+        })
+        .catchError((_) {});
+  }
+
+  bool _isPickStageDone(PickListMain m) {
+    final stage = (m.pickStage ?? '').trim().toLowerCase();
+    if (stage.isEmpty) {
+      // Backward-compatible fallback for older backend: status_flg == 'Y' means done.
+      return (m.statusFlg ?? '').trim().toUpperCase() == 'Y';
+    }
+    return stage == 'picked_done_pending_qc' || stage == 'qc_done';
   }
 
   Future<_SummaryData> _loadSummary() async {
@@ -64,110 +84,111 @@ class _PickListScreenState extends State<PickListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 4,
-      initialIndex: 0,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TabBar(
-            labelStyle: Theme.of(context).textTheme.labelMedium,
-            unselectedLabelStyle: Theme.of(context).textTheme.labelSmall,
-            tabs: const [
-              Tab(text: '未撿貨'),
-              Tab(text: '撿貨中'),
-              Tab(text: '撿貨完'),
-              Tab(text: '可分貨'),
-            ],
-          ),
-          Expanded(
-            child: FutureBuilder<List<PickListMain>>(
-              future: _futureMain,
-              builder: (context, snapshot) {
-                if (_futureMain == null) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('載入失敗'),
-                        const SizedBox(height: 8),
-                        Text('${snapshot.error}'),
-                        const SizedBox(height: 8),
-                        ElevatedButton(onPressed: _reload, child: const Text('重試')),
-                      ],
-                    ),
-                  );
-                }
-                final mains = snapshot.data ?? [];
-                final grouped = _groupMainByStatus(mains);
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    FutureBuilder<_SummaryData>(
-                      future: _futureSummary,
-                      builder: (context, sumSnap) {
-                        if (!sumSnap.hasData) return const SizedBox.shrink();
-                        final d = sumSnap.data!;
-                        return _TodaySummaryCard(
-                          summary: d.summary,
-                          myToday: d.myToday,
-                          onRefresh: _reload,
-                        );
-                      },
-                    ),
-                    Expanded(
-                      child: mains.isEmpty
-                          ? const Center(child: Text('目前沒有揀貨單'))
-                          : TabBarView(
-                              children: [
-                                _MainList(
-                                  mains: grouped['未撿貨']!,
-                                  emptyText: '目前沒有未撿貨的揀貨單',
-                                  service: _service,
-                                  onTap: _openItems,
-                                  onUnlock: _onUnlock,
-                                  onRefresh: _reload,
-                                ),
-                                _MainList(
-                                  mains: grouped['撿貨中']!,
-                                  emptyText: '目前沒有撿貨中的揀貨單',
-                                  service: _service,
-                                  onTap: _openItems,
-                                  onUnlock: _onUnlock,
-                                  onRefresh: _reload,
-                                ),
-                                _MainList(
-                                  mains: grouped['撿貨完']!,
-                                  emptyText: '目前沒有撿貨完成的揀貨單',
-                                  service: _service,
-                                  onTap: _openItems,
-                                  onUnlock: _onUnlock,
-                                  onRefresh: _reload,
-                                ),
-                                _MainList(
-                                  mains: grouped['可分貨']!,
-                                  emptyText: '目前沒有可分貨的揀貨單',
-                                  service: _service,
-                                  onTap: _openItems,
-                                  onUnlock: _onUnlock,
-                                  onRefresh: _reload,
-                                ),
-                              ],
-                            ),
-                    ),
-                  ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TabBar(
+          controller: _tabController,
+          labelStyle: Theme.of(context).textTheme.labelMedium,
+          unselectedLabelStyle: Theme.of(context).textTheme.labelSmall,
+          tabs: const [
+            Tab(text: '未撿貨'),
+            Tab(text: '撿貨中'),
+            Tab(text: '撿貨完'),
+            Tab(text: '可分貨'),
+          ],
+        ),
+        Expanded(
+          child: FutureBuilder<List<PickListMain>>(
+            future: _futureMain,
+            builder: (context, snapshot) {
+              if (_futureMain == null) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('載入失敗'),
+                      const SizedBox(height: 8),
+                      Text('${snapshot.error}'),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: _reload,
+                        child: const Text('重試'),
+                      ),
+                    ],
+                  ),
                 );
-              },
-            ),
+              }
+              final mains = snapshot.data ?? [];
+              final grouped = _groupMainByStatus(mains);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FutureBuilder<_SummaryData>(
+                    future: _futureSummary,
+                    builder: (context, sumSnap) {
+                      if (!sumSnap.hasData) return const SizedBox.shrink();
+                      final d = sumSnap.data!;
+                      return _TodaySummaryCard(
+                        summary: d.summary,
+                        myToday: d.myToday,
+                        onRefresh: _reload,
+                      );
+                    },
+                  ),
+                  Expanded(
+                    child: mains.isEmpty
+                        ? const Center(child: Text('目前沒有揀貨單'))
+                        : TabBarView(
+                            controller: _tabController,
+                            children: [
+                              _MainList(
+                                mains: grouped['未撿貨']!,
+                                emptyText: '目前沒有未撿貨的揀貨單',
+                                service: _service,
+                                onTap: _openItems,
+                                onFinishToQc: _onFinishToQc,
+                                onRefresh: _reload,
+                              ),
+                              _MainList(
+                                mains: grouped['撿貨中']!,
+                                emptyText: '目前沒有撿貨中的揀貨單',
+                                service: _service,
+                                onTap: _openItems,
+                                onFinishToQc: _onFinishToQc,
+                                onRefresh: _reload,
+                              ),
+                              _MainList(
+                                mains: grouped['撿貨完']!,
+                                emptyText: '目前沒有撿貨完成的揀貨單',
+                                service: _service,
+                                onTap: _openItems,
+                                onFinishToQc: _onFinishToQc,
+                                onRefresh: _reload,
+                              ),
+                              _MainList(
+                                mains: grouped['可分貨']!,
+                                emptyText: '目前沒有可分貨的揀貨單',
+                                service: _service,
+                                onTap: _openItems,
+                                onFinishToQc: _onFinishToQc,
+                                onRefresh: _reload,
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
+              );
+            },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -182,15 +203,15 @@ class _PickListScreenState extends State<PickListScreen> {
       final lock = (m.lockStatus ?? '').trim().toLowerCase();
       final isAvailable = lock == 'available';
       final isPicking = lock == 'locked_by_me' || lock == 'locked_by_other';
-      final isCompletedToPending = (m.statusFlg ?? '').toUpperCase() == 'Y';
+      final isDone = _isPickStageDone(m);
 
-      // 可領取優先：只要 lock_status 為 available，一律放入 未撿貨（不依 statusFlg）
-      if (isAvailable) {
-        result['未撿貨']!.add(m);
+      // 完成優先：避免 completed 但 lock_status=available 被放回未撿貨
+      if (isDone) {
+        result['撿貨完']!.add(m);
       } else if (isPicking) {
         result['撿貨中']!.add(m);
-      } else if (isCompletedToPending) {
-        result['撿貨完']!.add(m);
+      } else if (isAvailable) {
+        result['未撿貨']!.add(m);
       } else {
         // 其餘（空值或未知 lock）→ 未撿貨
         result['未撿貨']!.add(m);
@@ -201,6 +222,7 @@ class _PickListScreenState extends State<PickListScreen> {
   }
 
   Future<void> _openItems(PickListMain main) async {
+    if (_isPickStageDone(main)) return;
     final status = (main.lockStatus ?? '').toLowerCase();
     if (status == 'locked_by_other') return;
     if (status == 'available') {
@@ -208,39 +230,45 @@ class _PickListScreenState extends State<PickListScreen> {
         await _service.lock(main.sdNo);
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('領單失敗: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('領單失敗: $e')));
         _reload();
         return;
       }
       if (!mounted) return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PickListItemsScreen(
-          main: main,
-          employeeId: widget.employeeId ?? '',
-          service: _service,
-          onUnlockAndPop: () => _reload(),
-        ),
-      ),
-    ).then((_) => _reload());
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => PickListItemsScreen(
+              main: main,
+              employeeId: widget.employeeId ?? '',
+              service: _service,
+              onFinishedToQcAndPop: () {
+                _tabController.animateTo(2);
+                _reload();
+              },
+            ),
+          ),
+        )
+        .then((_) => _reload());
   }
 
-  Future<void> _onUnlock(PickListMain main) async {
+  Future<void> _onFinishToQc(PickListMain main) async {
     try {
-      await _service.unlock(main.sdNo);
+      await _service.finishToQc(main.sdNo);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已釋放此揀貨單')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已完成至待驗收')));
+      _tabController.animateTo(2);
       _reload();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('釋放失敗: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('完成失敗: $e')));
       _reload();
     }
   }
@@ -253,11 +281,7 @@ class _SummaryData {
 }
 
 class _TodaySummaryCard extends StatelessWidget {
-  const _TodaySummaryCard({
-    this.summary,
-    this.myToday,
-    this.onRefresh,
-  });
+  const _TodaySummaryCard({this.summary, this.myToday, this.onRefresh});
 
   final MainSummary? summary;
   final MyTodayResponse? myToday;
@@ -279,7 +303,11 @@ class _TodaySummaryCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 6, 4, 4),
       child: Row(
         children: [
-          Icon(Icons.today, size: 16, color: Theme.of(context).colorScheme.primary),
+          Icon(
+            Icons.today,
+            size: 16,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -311,7 +339,7 @@ class _MainList extends StatelessWidget {
     required this.emptyText,
     required this.service,
     required this.onTap,
-    required this.onUnlock,
+    required this.onFinishToQc,
     required this.onRefresh,
   });
 
@@ -319,7 +347,7 @@ class _MainList extends StatelessWidget {
   final String emptyText;
   final PickListService service;
   final Future<void> Function(PickListMain) onTap;
-  final Future<void> Function(PickListMain) onUnlock;
+  final Future<void> Function(PickListMain) onFinishToQc;
   final Future<void> Function() onRefresh;
 
   @override
@@ -347,7 +375,7 @@ class _MainList extends StatelessWidget {
           return _PickMainCard(
             main: main,
             onTap: () => onTap(main),
-            onUnlock: () => onUnlock(main),
+            onFinishToQc: () => onFinishToQc(main),
           );
         },
       ),
@@ -356,15 +384,11 @@ class _MainList extends StatelessWidget {
 }
 
 class _PickMainCard extends StatelessWidget {
-  const _PickMainCard({
-    required this.main,
-    this.onTap,
-    this.onUnlock,
-  });
+  const _PickMainCard({required this.main, this.onTap, this.onFinishToQc});
 
   final PickListMain main;
   final VoidCallback? onTap;
-  final VoidCallback? onUnlock;
+  final VoidCallback? onFinishToQc;
 
   /// 他人揀選中時：有 locked_by_name 顯示「XXX 揀選中」，否則退為 locked_by_phone 或「他人揀選中」
   static String _lockStatusLabel(PickListMain main) {
@@ -391,7 +415,11 @@ class _PickMainCard extends StatelessWidget {
     final isAvailable = (status ?? '').toLowerCase() == 'available';
     final isLockedByMe = (status ?? '').toLowerCase() == 'locked_by_me';
     final isLockedByOther = (status ?? '').toLowerCase() == 'locked_by_other';
-    final canTap = isAvailable || isLockedByMe;
+    final stage = (main.pickStage ?? '').trim().toLowerCase();
+    final isDone = stage.isNotEmpty
+        ? (stage == 'picked_done_pending_qc' || stage == 'qc_done')
+        : (main.statusFlg ?? '').trim().toUpperCase() == 'Y';
+    final canTap = !isDone && (isAvailable || isLockedByMe);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -427,14 +455,13 @@ class _PickMainCard extends StatelessWidget {
                             ),
                             decoration: BoxDecoration(
                               color: isLockedByOther
-                                  ? Theme.of(context)
-                                      .colorScheme
-                                      .errorContainer
-                                      .withAlpha(153)
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.errorContainer.withAlpha(153)
                                   : Theme.of(context)
-                                      .colorScheme
-                                      .primaryContainer
-                                      .withAlpha(204),
+                                        .colorScheme
+                                        .primaryContainer
+                                        .withAlpha(204),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -452,12 +479,12 @@ class _PickMainCard extends StatelessWidget {
                     Text(
                       '件數：${main.ttlMustQty ?? '-'}，A頁：${main.aPageCnt ?? '-'}，B頁：${main.bPageCnt ?? '-'}',
                     ),
-                    if (isLockedByMe && onUnlock != null) ...[
+                    if (!isDone && isLockedByMe && onFinishToQc != null) ...[
                       const SizedBox(height: 8),
                       TextButton.icon(
-                        onPressed: onUnlock,
+                        onPressed: onFinishToQc,
                         icon: const Icon(Icons.lock_open, size: 18),
-                        label: const Text('完成並釋放'),
+                        label: const Text('完成至待驗收'),
                       ),
                     ],
                   ],
@@ -512,10 +539,7 @@ class _ShelfRatingStars extends StatelessWidget {
 
 /// 本張揀貨單所有櫃號的時間軸，標示目前進行到哪一櫃；會隨目前櫃號捲動以保持同步
 class _ShelfTimeline extends StatefulWidget {
-  const _ShelfTimeline({
-    required this.labels,
-    required this.currentIndex,
-  });
+  const _ShelfTimeline({required this.labels, required this.currentIndex});
 
   final List<String> labels;
   final int currentIndex;
@@ -570,7 +594,11 @@ class _ShelfTimelineState extends State<_ShelfTimeline> {
             if (i > 0)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Icon(Icons.arrow_forward_ios, size: 12, color: theme.colorScheme.outline),
+                child: Icon(
+                  Icons.arrow_forward_ios,
+                  size: 12,
+                  color: theme.colorScheme.outline,
+                ),
               ),
             Container(
               key: i == currentIndex ? _currentKey : null,
@@ -585,8 +613,12 @@ class _ShelfTimelineState extends State<_ShelfTimeline> {
               child: Text(
                 widget.labels[i],
                 style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: i == currentIndex ? FontWeight.w700 : FontWeight.w500,
-                  color: i == currentIndex ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                  fontWeight: i == currentIndex
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                  color: i == currentIndex
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
@@ -625,23 +657,23 @@ class _PickCard extends StatelessWidget {
     final title = item.title.isNotEmpty
         ? item.title
         : (item.titleMain != null && item.titleMain!.isNotEmpty
-            ? item.titleMain!
-            : '未提供品名');
+              ? item.titleMain!
+              : '未提供品名');
     final shelfLabel = (item.rkId != null && item.rkId!.isNotEmpty)
         ? item.rkId!
         : (item.id.isNotEmpty ? item.id : '-');
     final productLabel = (item.productId.isNotEmpty)
         ? '店內碼: ${item.productId}'
         : (item.orgProdId != null && item.orgProdId!.isNotEmpty
-            ? '店內碼: ${item.orgProdId}'
-            : null);
+              ? '店內碼: ${item.orgProdId}'
+              : null);
     final logcodeLabel = (item.logcode != null && item.logcode!.isNotEmpty)
         ? '物流條碼: ${item.logcode}'
         : null;
-    final qtyLabel =
-        item.mustQty != null ? '數量: ${item.mustQty}' : null;
-    final seqLabel =
-        (item.seqNum != null && item.seqNum!.isNotEmpty) ? '左至右第: ${item.seqNum}' : null;
+    final qtyLabel = item.mustQty != null ? '數量: ${item.mustQty}' : null;
+    final seqLabel = (item.seqNum != null && item.seqNum!.isNotEmpty)
+        ? '左至右第: ${item.seqNum}'
+        : null;
 
     Future<void> showPreview(ImageProvider provider) async {
       await showDialog<void>(
@@ -652,10 +684,7 @@ class _PickCard extends StatelessWidget {
             color: Colors.black.withAlpha(230),
             alignment: Alignment.center,
             child: InteractiveViewer(
-              child: Image(
-                image: provider,
-                fit: BoxFit.contain,
-              ),
+              child: Image(image: provider, fit: BoxFit.contain),
             ),
           ),
         ),
@@ -806,17 +835,22 @@ class _PickCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary.withAlpha(31),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withAlpha(31),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         shelfLabel,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     ),
                   ),
@@ -830,10 +864,7 @@ class _PickCard extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               // 櫃位現場圖置於上方，橫向鋪滿
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: buildShelfMock(),
-              ),
+              AspectRatio(aspectRatio: 16 / 9, child: buildShelfMock()),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -868,18 +899,18 @@ class _PickCard extends StatelessWidget {
                           item.mustQty != null && item.mustQty! > 1
                               ? Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 6),
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .errorContainer
-                                        .withAlpha(204),
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.errorContainer.withAlpha(204),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .error
-                                          .withAlpha(153),
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error.withAlpha(153),
                                       width: 1.5,
                                     ),
                                   ),
@@ -890,9 +921,9 @@ class _PickCard extends StatelessWidget {
                                         .titleSmall
                                         ?.copyWith(
                                           fontWeight: FontWeight.w800,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onErrorContainer,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onErrorContainer,
                                         ),
                                   ),
                                 )
@@ -918,8 +949,10 @@ class _PickCard extends StatelessWidget {
                   allShelfLabels!.isNotEmpty)
                 _ShelfTimeline(
                   labels: allShelfLabels!,
-                  currentIndex: currentShelfIndex!
-                      .clamp(0, allShelfLabels!.length - 1),
+                  currentIndex: currentShelfIndex!.clamp(
+                    0,
+                    allShelfLabels!.length - 1,
+                  ),
                 ),
             ],
           ),
@@ -935,14 +968,15 @@ class PickListItemsScreen extends StatefulWidget {
     required this.main,
     required this.employeeId,
     this.service,
-    this.onUnlockAndPop,
+    this.onFinishedToQcAndPop,
   });
 
   final PickListMain main;
   final String employeeId;
   final PickListService? service;
-  /// 完成至待驗收（unlock）後呼叫，例如刷新列表
-  final VoidCallback? onUnlockAndPop;
+
+  /// 完成至待驗收（finish-to-qc）後呼叫，例如刷新列表並切換 tab
+  final VoidCallback? onFinishedToQcAndPop;
 
   @override
   State<PickListItemsScreen> createState() => _PickListItemsScreenState();
@@ -1024,12 +1058,14 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       if (json == null) return (<String>{}, <String>{});
       final map = jsonDecode(json) as Map<String, dynamic>?;
       if (map == null) return (<String>{}, <String>{});
-      final completed = (map['completed'] as List<dynamic>?)
+      final completed =
+          (map['completed'] as List<dynamic>?)
               ?.whereType<String>()
               .where(validKeys.contains)
               .toSet() ??
           <String>{};
-      final notFound = (map['notFound'] as List<dynamic>?)
+      final notFound =
+          (map['notFound'] as List<dynamic>?)
               ?.whereType<String>()
               .where(validKeys.contains)
               .toSet() ??
@@ -1062,17 +1098,17 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
 
   Future<void> _finishAndLeave() async {
     try {
-      await _service.unlock(widget.main.sdNo);
+      await _service.finishToQc(widget.main.sdNo);
       if (!mounted) return;
       await _clearProgress();
       if (!mounted) return;
-      widget.onUnlockAndPop?.call();
+      widget.onFinishedToQcAndPop?.call();
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('釋放失敗: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('完成失敗: $e')));
     }
   }
 
@@ -1166,15 +1202,18 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                   final completed = _completed.contains(key);
                   final notFound = _notFound.contains(key);
                   final itemKey = _itemKey(pageItem);
-                  final hasShelfImage = (pageItem.overlayUrl != null &&
+                  final hasShelfImage =
+                      (pageItem.overlayUrl != null &&
                           pageItem.overlayUrl!.isNotEmpty) ||
                       (pageItem.overlayDataUrl != null &&
                           pageItem.overlayDataUrl!.isNotEmpty);
                   final shelfLabels = [
                     for (var i = 0; i < filtered.length; i++)
-                      _items[filtered[i]].rkId ??
-                          _items[filtered[i]].id ??
-                          '-',
+                      (() {
+                        final it = _items[filtered[i]];
+                        final rk = it.rkId?.trim();
+                        return (rk != null && rk.isNotEmpty) ? rk : it.id;
+                      })(),
                   ];
                   return SizedBox.expand(
                     child: SingleChildScrollView(
@@ -1197,41 +1236,41 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                 },
               ),
             ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                onPressed: _currentVisibleIndex > 0 ? () => _go(-1) : null,
-                icon: const Icon(Icons.chevron_left),
-                tooltip: '上一項',
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: () => _markComplete(item),
-                child: Text(isCompleted ? '已完成' : '完成'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonal(
-                onPressed: () => _markNotFound(item),
-                style: FilledButton.styleFrom(
-                  backgroundColor: isNotFound
-                      ? Theme.of(context).colorScheme.errorContainer
-                      : null,
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: _currentVisibleIndex > 0 ? () => _go(-1) : null,
+                  icon: const Icon(Icons.chevron_left),
+                  tooltip: '上一項',
                 ),
-                child: Text(isNotFound ? '已標記' : '找不到'),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                onPressed: _currentVisibleIndex < filtered.length - 1
-                    ? () => _go(1)
-                    : null,
-                icon: const Icon(Icons.chevron_right),
-                tooltip: '下一項',
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => _markComplete(item),
+                  child: Text(isCompleted ? '已完成' : '完成'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonal(
+                  onPressed: () => _markNotFound(item),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: isNotFound
+                        ? Theme.of(context).colorScheme.errorContainer
+                        : null,
+                  ),
+                  child: Text(isNotFound ? '已標記' : '找不到'),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _currentVisibleIndex < filtered.length - 1
+                      ? () => _go(1)
+                      : null,
+                  icon: const Icon(Icons.chevron_right),
+                  tooltip: '下一項',
+                ),
+              ],
+            ),
+          ],
         ),
       );
     }
@@ -1287,19 +1326,21 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                 ),
                 if (isItemView && filtered.isNotEmpty)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       '項目 ${_currentVisibleIndex + 1} / ${filtered.length}',
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
               ],
@@ -1313,7 +1354,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                     builder: (context, constraints) {
                       return SingleChildScrollView(
                         child: ConstrainedBox(
-                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight,
+                          ),
                           child: Center(child: content),
                         ),
                       );
@@ -1366,9 +1409,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('評分送出失敗: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('評分送出失敗: $e')));
     }
   }
 
@@ -1398,14 +1441,14 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         _completed.remove(key);
       });
       _persistProgress();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已紀錄揀不到／異常')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已紀錄揀不到／異常')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('回報失敗: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('回報失敗: $e')));
     }
   }
 
@@ -1428,14 +1471,17 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                   children: [
                     const Text('原因'),
                     const SizedBox(height: 8),
-                    ..._cannotPickReasons.map((r) => RadioListTile<String>(
-                          value: r,
-                          title: Text(r),
-                          // ignore: deprecated_member_use
-                          groupValue: selected,
-                          // ignore: deprecated_member_use
-                          onChanged: (v) => setState(() => selected = v ?? selected),
-                        )),
+                    ..._cannotPickReasons.map(
+                      (r) => RadioListTile<String>(
+                        value: r,
+                        title: Text(r),
+                        // ignore: deprecated_member_use
+                        groupValue: selected,
+                        // ignore: deprecated_member_use
+                        onChanged: (v) =>
+                            setState(() => selected = v ?? selected),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: remarkController,
@@ -1500,20 +1546,13 @@ class PickItemPreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(item.title),
-      ),
+      appBar: AppBar(title: Text(item.title)),
       body: PageView.builder(
         itemCount: _mockLocalImages.length,
         itemBuilder: (context, index) {
           final path = _mockLocalImages[index];
           return InteractiveViewer(
-            child: Center(
-              child: Image.asset(
-                path,
-                fit: BoxFit.contain,
-              ),
-            ),
+            child: Center(child: Image.asset(path, fit: BoxFit.contain)),
           );
         },
       ),

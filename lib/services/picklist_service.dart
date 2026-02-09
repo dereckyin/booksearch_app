@@ -155,6 +155,35 @@ class PickListService {
     throw Exception('Unlock API ${resp.statusCode}: ${resp.body}');
   }
 
+  /// 完成至待驗收（撿貨完並釋放）：POST /api/v1/picking-lists/finish-to-qc
+  ///
+  /// **後端開發規格**
+  /// - 路徑：POST /api/v1/picking-lists/finish-to-qc
+  /// - Header：Authorization: Bearer {token}、Content-Type: application/json
+  /// - Body：{ "sd_no": "1234567890123(A)" }
+  /// - 行為：
+  ///   - 驗證此單存在
+  ///   - 驗證呼叫者持有 lock（lock_status == locked_by_me），否則 403
+  ///   - 將 pick_stage 設為 picked_done_pending_qc
+  ///   - 釋放 lock（讓列表不再顯示為撿貨中）
+  /// - 成功 (200)：{ "success": true, "sd_no": "...", "pick_stage": "picked_done_pending_qc" }
+  /// - 失敗：401/403/404/409 依既有慣例回傳
+  Future<void> finishToQc(String sdNo) async {
+    final uri =
+        Uri.parse('${_config.uploadBase}/api/v1/picking-lists/finish-to-qc');
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({'sd_no': sdNo}),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    if (resp.statusCode == 403) {
+      throw Exception('此單由他人揀選中，您無法完成');
+    }
+    throw Exception('Finish-to-qc API ${resp.statusCode}: ${resp.body}');
+  }
+
   /// 揀不到回報：POST /api/v1/picking-lists/cannot-pick
   Future<void> reportCannotPick({
     required String sdNo,
