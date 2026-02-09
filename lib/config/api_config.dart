@@ -5,10 +5,10 @@ class ApiConfig {
 
   static const String _env = String.fromEnvironment(
     'APP_ENV',
-    defaultValue: 'testing',
+    defaultValue: 'production',
   );
 
-  bool get isTesting => _env.toLowerCase() == 'production';
+  bool get isTesting => _env.toLowerCase() == 'testing';
   bool get isProduction => _env.toLowerCase() == 'production';
 
   /// Upload API base URL differs by environment.
