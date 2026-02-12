@@ -5,7 +5,7 @@ class ApiConfig {
 
   static const String _env = String.fromEnvironment(
     'APP_ENV',
-    defaultValue: 'production',
+    defaultValue: 'testing',
   );
 
   bool get isTesting => _env.toLowerCase() == 'testing';

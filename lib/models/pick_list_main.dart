@@ -93,6 +93,42 @@ class PickListMain {
     'G': '團購',
     'D': '下載',
   };
+  static const Map<String, String> channelCategoryLabels = {
+    '7': '超商',
+    'F': '超商',
+    'L': '超商',
+    'K': '超商',
+    'SPE': '蝦皮',
+    'SPH': '蝦皮',
+    'H': '宅配',
+    'CAT': '宅配',
+    'P': '宅配',
+    'S': '宅配',
+    'KHK': '宅配',
+    'BHK': '宅配',
+    'CHK': '宅配',
+  };
+  static const Map<String, String> channelLabels = {
+    '7': '7-11',
+    'F': '全家',
+    'L': '萊爾富',
+    'K': 'OK',
+    'SPE': '店到店',
+    'SPH': '隔日到貨',
+    'H': '大榮',
+    'CAT': '黑貓',
+    'P': '郵局',
+    'S': '海外',
+    'KHK': '香港OK',
+    'BHK': '香港OK',
+    'CHK': '香港OK',
+  };
+  static const Map<String, String> mallCompanyLabels = {
+    'TAZ': '讀冊',
+    'RTN': '露天',
+    'FRI': '遠傳',
+    'IRD': '灰熊',
+  };
   static const Map<String, String> cnnoLabels = {
     'A': '合併超商',
     'F': '全家',
@@ -135,6 +171,21 @@ class PickListMain {
   String? get statusText => _label(statusFlg, statusLabels);
   String? get deliverText => _label(deliver, deliverLabels);
   String? get cnnoText => _label(cnno, cnnoLabels);
+  String? get channelCategoryText => _labelUpper(cnno, channelCategoryLabels);
+  String? get channelText => _labelUpper(cnno, channelLabels);
+  String? get channelDisplayText {
+    final category = channelCategoryText;
+    final channel = channelText ?? _normalizeCode(cnno);
+    if (category == null && channel == null) return null;
+    if (category != null && channel != null) return '$category（$channel）';
+    return category ?? channel;
+  }
+  String? get mallText => _labelUpper(companyId, mallCompanyLabels);
+  String? get mallDisplayText {
+    final mall = mallText ?? _normalizeCode(companyId);
+    if (mall == null) return null;
+    return '商城（$mall）';
+  }
   String? get spSingleText => _label(spSingleFlg, spSingleLabels);
   String? get fragileText => _label(ctFragileFlg, boolLabels);
   String? get gmText => _label(ctGmFlg, boolLabels);
@@ -207,4 +258,16 @@ String? _asString(dynamic value) {
 String? _label(String? code, Map<String, String> map) {
   if (code == null || code.isEmpty) return null;
   return map[code] ?? code;
+}
+
+String? _labelUpper(String? code, Map<String, String> map) {
+  final normalized = _normalizeCode(code);
+  if (normalized == null) return null;
+  return map[normalized] ?? normalized;
+}
+
+String? _normalizeCode(String? code) {
+  if (code == null) return null;
+  final normalized = code.trim().toUpperCase();
+  return normalized.isEmpty ? null : normalized;
 }

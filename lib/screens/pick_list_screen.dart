@@ -496,7 +496,7 @@ class _PickMainCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '狀態：${main.statusText ?? main.statusFlg ?? '-'} / 配送：${main.deliverText ?? main.deliver ?? '-'}',
+                      '狀態：${main.statusText ?? main.statusFlg ?? '-'} / 通路：${main.channelDisplayText ?? '-'} / ${main.mallDisplayText ?? '商城（-）'}',
                     ),
                     const SizedBox(height: 4),
                     Text(
