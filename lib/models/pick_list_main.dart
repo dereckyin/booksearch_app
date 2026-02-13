@@ -1,5 +1,12 @@
 /// lock_status 由 GET /main 帶 token 時回傳（揀貨單手機端開發指南 §4.1）
 /// available / locked_by_me / locked_by_other
+enum PickFlowTabStatus {
+  unpicked,
+  picking,
+  pickedDone,
+  readyToSort,
+}
+
 class PickListMain {
   PickListMain({
     required this.sdNo,
@@ -185,6 +192,65 @@ class PickListMain {
     final mall = mallText ?? _normalizeCode(companyId);
     if (mall == null) return null;
     return '商城（$mall）';
+  }
+  String get normalizedLockStatus => (lockStatus ?? '').trim().toLowerCase();
+  String get normalizedPickStage => (pickStage ?? '').trim().toLowerCase();
+  String get normalizedStatusFlg => (statusFlg ?? '').trim().toUpperCase();
+  bool get isOrderDone => normalizedStatusFlg == 'Y';
+  bool get isPickedDoneStage =>
+      normalizedPickStage == 'picked_done_pending_qc' ||
+      normalizedPickStage == 'qc_done';
+  bool get isReadyToSortStage => normalizedPickStage == 'qc_done';
+  bool get isPicking =>
+      normalizedLockStatus == 'locked_by_me' ||
+      normalizedLockStatus == 'locked_by_other';
+  bool get isAvailableToPick => normalizedLockStatus == 'available';
+  String? get pickerDisplayName {
+    final name = lockedByName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    final phone = lockedByPhone?.trim();
+    if (phone != null && phone.isNotEmpty) return phone;
+    return null;
+  }
+  PickFlowTabStatus get flowTabStatus {
+    if (isReadyToSortStage) return PickFlowTabStatus.readyToSort;
+    if (isPickedDoneStage) return PickFlowTabStatus.pickedDone;
+    if (isPicking) return PickFlowTabStatus.picking;
+    return PickFlowTabStatus.unpicked;
+  }
+  String get flowTabLabel {
+    switch (flowTabStatus) {
+      case PickFlowTabStatus.unpicked:
+        return '未撿貨';
+      case PickFlowTabStatus.picking:
+        return '撿貨中';
+      case PickFlowTabStatus.pickedDone:
+        return '撿貨完';
+      case PickFlowTabStatus.readyToSort:
+        return '可分貨';
+    }
+  }
+  bool get isUnfinishedForBadge =>
+      flowTabStatus == PickFlowTabStatus.unpicked ||
+      flowTabStatus == PickFlowTabStatus.picking;
+  String get orderStatusDisplay => statusText ?? statusFlg ?? '-';
+  String get lockStatusDisplay {
+    if (flowTabStatus == PickFlowTabStatus.pickedDone ||
+        flowTabStatus == PickFlowTabStatus.readyToSort) {
+      final picker = pickerDisplayName;
+      return picker == null ? '已撿貨完成' : '$picker 已撿貨完成';
+    }
+    switch (normalizedLockStatus) {
+      case 'available':
+        return '可領取';
+      case 'locked_by_me':
+        return '我撿貨中';
+      case 'locked_by_other':
+        final picker = pickerDisplayName;
+        return picker == null ? '他人撿貨中' : '$picker 撿貨中';
+      default:
+        return lockStatus?.isNotEmpty == true ? lockStatus! : '';
+    }
   }
   String? get spSingleText => _label(spSingleFlg, spSingleLabels);
   String? get fragileText => _label(ctFragileFlg, boolLabels);

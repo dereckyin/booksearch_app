@@ -56,9 +56,7 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final mains = await widget.pickListService.fetchPickListMain();
       if (!mounted) return;
-      final unfinished = mains
-          .where((m) => (m.statusFlg ?? '').toUpperCase() != 'Y')
-          .length;
+      final unfinished = mains.where((m) => m.isUnfinishedForBadge).length;
       setState(() => _pickListCount = unfinished);
     } catch (_) {
       // Ignore; keep last known count.

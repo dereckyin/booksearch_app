@@ -14,11 +14,13 @@ class PickListScreen extends StatefulWidget {
     this.service,
     this.onCountChanged,
     this.employeeId,
+    this.showDateOnCards = false,
   });
 
   final PickListService? service;
   final ValueChanged<int>? onCountChanged;
   final String? employeeId;
+  final bool showDateOnCards;
 
   @override
   State<PickListScreen> createState() => _PickListScreenState();
@@ -53,19 +55,10 @@ class _PickListScreenState extends State<PickListScreen>
     _futureMain
         ?.then((items) {
           widget.onCountChanged?.call(
-            items.where((m) => !_isPickStageDone(m)).length,
+            items.where((m) => m.isUnfinishedForBadge).length,
           );
         })
         .catchError((_) {});
-  }
-
-  bool _isPickStageDone(PickListMain m) {
-    final stage = (m.pickStage ?? '').trim().toLowerCase();
-    if (stage.isEmpty) {
-      // Backward-compatible fallback for older backend: status_flg == 'Y' means done.
-      return (m.statusFlg ?? '').trim().toUpperCase() == 'Y';
-    }
-    return stage == 'picked_done_pending_qc' || stage == 'qc_done';
   }
 
   Future<_SummaryData> _loadSummary() async {
@@ -155,32 +148,40 @@ class _PickListScreenState extends State<PickListScreen>
                                 mains: grouped['未撿貨']!,
                                 emptyText: '目前沒有未撿貨的揀貨單',
                                 service: _service,
+                                showDateOnCards: widget.showDateOnCards,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
+                                onRelease: _onRelease,
                                 onRefresh: _reload,
                               ),
                               _MainList(
                                 mains: grouped['撿貨中']!,
                                 emptyText: '目前沒有撿貨中的揀貨單',
                                 service: _service,
+                                showDateOnCards: widget.showDateOnCards,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
+                                onRelease: _onRelease,
                                 onRefresh: _reload,
                               ),
                               _MainList(
                                 mains: grouped['撿貨完']!,
                                 emptyText: '目前沒有撿貨完成的揀貨單',
                                 service: _service,
+                                showDateOnCards: widget.showDateOnCards,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
+                                onRelease: _onRelease,
                                 onRefresh: _reload,
                               ),
                               _MainList(
                                 mains: grouped['可分貨']!,
                                 emptyText: '目前沒有可分貨的揀貨單',
                                 service: _service,
+                                showDateOnCards: widget.showDateOnCards,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
+                                onRelease: _onRelease,
                                 onRefresh: _reload,
                               ),
                             ],
@@ -203,32 +204,15 @@ class _PickListScreenState extends State<PickListScreen>
       '可分貨': [],
     };
     for (final m in mains) {
-      final lock = (m.lockStatus ?? '').trim().toLowerCase();
-      final isAvailable = lock == 'available';
-      final isPicking = lock == 'locked_by_me' || lock == 'locked_by_other';
-      final isDone = _isPickStageDone(m);
-
-      // 完成優先：避免 completed 但 lock_status=available 被放回未撿貨
-      if (isDone) {
-        result['撿貨完']!.add(m);
-      } else if (isPicking) {
-        result['撿貨中']!.add(m);
-      } else if (isAvailable) {
-        result['未撿貨']!.add(m);
-      } else {
-        // 其餘（空值或未知 lock）→ 未撿貨
-        result['未撿貨']!.add(m);
-      }
-      // 可分貨 先暫時空白
+      result[m.flowTabLabel]!.add(m);
     }
     return result;
   }
 
   Future<void> _openItems(PickListMain main) async {
-    if (_isPickStageDone(main)) return;
-    final status = (main.lockStatus ?? '').toLowerCase();
-    if (status == 'locked_by_other') return;
-    if (status == 'available') {
+    if (main.isPickedDoneStage) return;
+    if (main.normalizedLockStatus == 'locked_by_other') return;
+    if (main.isAvailableToPick) {
       try {
         await _service.lock(main.sdNo);
       } catch (e) {
@@ -275,6 +259,23 @@ class _PickListScreenState extends State<PickListScreen>
       _reload();
     }
   }
+
+  Future<void> _onRelease(PickListMain main) async {
+    try {
+      await _service.unlock(main.sdNo);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已釋放揀貨單')));
+      _reload();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('釋放失敗: $e')));
+      _reload();
+    }
+  }
 }
 
 class _SummaryData {
@@ -317,7 +318,7 @@ class _TodaySummaryCard extends StatelessWidget {
       parts.add('撿貨中 ${pickingCount ?? 0}');
       parts.add('撿貨完 ${completedCount ?? 0}');
     } else if (myToday != null) {
-      parts.add('進行中 ${myToday!.lockedCount}');
+      parts.add('撿貨中 ${myToday!.lockedCount}');
       parts.add('撿貨完 ${myToday!.completedCount}');
     }
     if (parts.isEmpty) return const SizedBox.shrink();
@@ -360,16 +361,20 @@ class _MainList extends StatelessWidget {
     required this.mains,
     required this.emptyText,
     required this.service,
+    required this.showDateOnCards,
     required this.onTap,
     required this.onFinishToQc,
+    required this.onRelease,
     required this.onRefresh,
   });
 
   final List<PickListMain> mains;
   final String emptyText;
   final PickListService service;
+  final bool showDateOnCards;
   final Future<void> Function(PickListMain) onTap;
   final Future<void> Function(PickListMain) onFinishToQc;
+  final Future<void> Function(PickListMain) onRelease;
   final Future<void> Function() onRefresh;
 
   @override
@@ -396,8 +401,10 @@ class _MainList extends StatelessWidget {
           final main = mains[index];
           return _PickMainCard(
             main: main,
+            showDate: showDateOnCards,
             onTap: () => onTap(main),
             onFinishToQc: () => onFinishToQc(main),
+            onRelease: () => onRelease(main),
           );
         },
       ),
@@ -406,42 +413,31 @@ class _MainList extends StatelessWidget {
 }
 
 class _PickMainCard extends StatelessWidget {
-  const _PickMainCard({required this.main, this.onTap, this.onFinishToQc});
+  const _PickMainCard({
+    required this.main,
+    this.showDate = false,
+    this.onTap,
+    this.onFinishToQc,
+    this.onRelease,
+  });
 
   final PickListMain main;
+  final bool showDate;
   final VoidCallback? onTap;
   final VoidCallback? onFinishToQc;
-
-  /// 他人揀選中時：有 locked_by_name 顯示「XXX 揀選中」，否則退為 locked_by_phone 或「他人揀選中」
-  static String _lockStatusLabel(PickListMain main) {
-    final status = (main.lockStatus ?? '').toLowerCase();
-    switch (status) {
-      case 'available':
-        // 撿貨完頁簽中的可領取 → 顯示「可驗收」
-        return (main.statusFlg ?? '').toUpperCase() == 'Y' ? '可驗收' : '可領取';
-      case 'locked_by_me':
-        return '我揀選中';
-      case 'locked_by_other':
-        final name = main.lockedByName?.trim();
-        if (name != null && name.isNotEmpty) return '$name 揀選中';
-        final phone = main.lockedByPhone?.trim();
-        if (phone != null && phone.isNotEmpty) return '$phone 揀選中';
-        return '他人揀選中';
-      default:
-        return main.lockStatus?.isNotEmpty == true ? main.lockStatus! : '';
-    }
+  final VoidCallback? onRelease;
+  String _dateText(DateTime dt) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
   }
 
   @override
   Widget build(BuildContext context) {
     final status = main.lockStatus;
-    final isAvailable = (status ?? '').toLowerCase() == 'available';
-    final isLockedByMe = (status ?? '').toLowerCase() == 'locked_by_me';
-    final isLockedByOther = (status ?? '').toLowerCase() == 'locked_by_other';
-    final stage = (main.pickStage ?? '').trim().toLowerCase();
-    final isDone = stage.isNotEmpty
-        ? (stage == 'picked_done_pending_qc' || stage == 'qc_done')
-        : (main.statusFlg ?? '').trim().toUpperCase() == 'Y';
+    final isAvailable = main.isAvailableToPick;
+    final isLockedByMe = main.normalizedLockStatus == 'locked_by_me';
+    final isLockedByOther = main.normalizedLockStatus == 'locked_by_other';
+    final isDone = main.isPickedDoneStage;
     final canTap = !isDone && (isAvailable || isLockedByMe);
 
     return Card(
@@ -488,7 +484,7 @@ class _PickMainCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              _lockStatusLabel(main),
+                              main.lockStatusDisplay,
                               style: Theme.of(context).textTheme.labelSmall,
                             ),
                           ),
@@ -496,18 +492,39 @@ class _PickMainCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '狀態：${main.statusText ?? main.statusFlg ?? '-'} / 通路：${main.channelDisplayText ?? '-'} / ${main.mallDisplayText ?? '商城（-）'}',
+                      '流程：${main.flowTabLabel}',
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '件數：${main.ttlMustQty ?? '-'}，A頁：${main.aPageCnt ?? '-'}，B頁：${main.bPageCnt ?? '-'}',
+                      '通路：${main.channelDisplayText ?? '-'} / ${main.mallDisplayText ?? '商城（-）'}',
                     ),
-                    if (!isDone && isLockedByMe && onFinishToQc != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '件數：${main.ttlMustQty ?? '-'}',
+                    ),
+                    if (showDate && main.crtTime != null) ...[
+                      const SizedBox(height: 4),
+                      Text('建立時間：${_dateText(main.crtTime!)}'),
+                    ],
+                    if (!isDone && isLockedByMe) ...[
                       const SizedBox(height: 8),
-                      TextButton.icon(
-                        onPressed: onFinishToQc,
-                        icon: const Icon(Icons.lock_open, size: 18),
-                        label: const Text('完成至待驗收'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (onFinishToQc != null)
+                            TextButton.icon(
+                              onPressed: onFinishToQc,
+                              icon: const Icon(Icons.lock_open, size: 18),
+                              label: const Text('完成至待驗收'),
+                            ),
+                          if (onRelease != null)
+                            TextButton.icon(
+                              onPressed: onRelease,
+                              icon: const Icon(Icons.lock_outline, size: 18),
+                              label: const Text('釋放'),
+                            ),
+                        ],
                       ),
                     ],
                   ],
