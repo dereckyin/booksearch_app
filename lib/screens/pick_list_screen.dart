@@ -32,6 +32,7 @@ class _PickListScreenState extends State<PickListScreen>
   Future<List<PickListMain>>? _futureMain;
   Future<_SummaryData>? _futureSummary;
   late final TabController _tabController;
+  final Map<String, bool> _canFinishToQcBySdNo = {};
 
   @override
   void initState() {
@@ -51,14 +52,89 @@ class _PickListScreenState extends State<PickListScreen>
     setState(() {
       _futureMain = _service.fetchPickListMain();
       _futureSummary = _loadSummary();
+      _canFinishToQcBySdNo.clear();
     });
     _futureMain
         ?.then((items) {
+          _refreshFinishEligibility(items);
           widget.onCountChanged?.call(
             items.where((m) => m.isUnfinishedForBadge).length,
           );
         })
         .catchError((_) {});
+  }
+
+  static String _progressKey(String sdNo) =>
+      'pick_list_progress_${sdNo.replaceAll(RegExp(r'[^\w\-]'), '_')}';
+
+  static String _itemKeyForItem(PickListItem item) =>
+      '${item.id}-${item.seqNum ?? ''}-${item.productId}';
+
+  Future<void> _refreshFinishEligibility(List<PickListMain> mains) async {
+    final targets = mains
+        .where((m) => m.normalizedLockStatus == 'locked_by_me' && !m.isPickedDoneStage)
+        .toList();
+    if (targets.isEmpty) return;
+    for (final m in targets) {
+      final canFinish = await _canFinishToQcForMain(m);
+      if (!mounted) return;
+      setState(() {
+        _canFinishToQcBySdNo[m.sdNo] = canFinish;
+      });
+    }
+  }
+
+  Future<bool> _canFinishToQcForMain(PickListMain main) async {
+    try {
+      final items = await _service.fetchItemsBySdNo(
+        employeeId: widget.employeeId?.isNotEmpty == true ? widget.employeeId : null,
+        sdNo: main.sdNo,
+        main: main,
+      );
+      if (items.isEmpty) return false;
+      final validKeys = items.map(_itemKeyForItem).toSet();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_progressKey(main.sdNo));
+      if (raw == null) return false;
+      final map = jsonDecode(raw) as Map<String, dynamic>?;
+      if (map == null) return false;
+      final completed =
+          (map['completed'] as List<dynamic>?)
+              ?.whereType<String>()
+              .where(validKeys.contains)
+              .toSet() ??
+          <String>{};
+      final notFound =
+          (map['notFound'] as List<dynamic>?)
+              ?.whereType<String>()
+              .where(validKeys.contains)
+              .toSet() ??
+          <String>{};
+      return completed.length + notFound.length == validKeys.length;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _confirmFinishToQc(PickListMain main) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認完成至待驗收'),
+        content: Text('確定將揀貨單 ${main.sdNo} 標記為完成至待驗收？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
   }
 
   Future<_SummaryData> _loadSummary() async {
@@ -149,6 +225,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 emptyText: '目前沒有未撿貨的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
+                                canFinishToQcBySdNo: _canFinishToQcBySdNo,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
                                 onRelease: _onRelease,
@@ -159,6 +236,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 emptyText: '目前沒有撿貨中的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
+                                canFinishToQcBySdNo: _canFinishToQcBySdNo,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
                                 onRelease: _onRelease,
@@ -169,6 +247,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 emptyText: '目前沒有撿貨完成的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
+                                canFinishToQcBySdNo: _canFinishToQcBySdNo,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
                                 onRelease: _onRelease,
@@ -179,6 +258,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 emptyText: '目前沒有可分貨的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
+                                canFinishToQcBySdNo: _canFinishToQcBySdNo,
                                 onTap: _openItems,
                                 onFinishToQc: _onFinishToQc,
                                 onRelease: _onRelease,
@@ -244,6 +324,17 @@ class _PickListScreenState extends State<PickListScreen>
 
   Future<void> _onFinishToQc(PickListMain main) async {
     try {
+      final canFinish = await _canFinishToQcForMain(main);
+      if (!canFinish) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('請先將所有項目標記為完成或找不到')),
+        );
+        return;
+      }
+      if (!mounted) return;
+      final confirmed = await _confirmFinishToQc(main);
+      if (!confirmed) return;
       await _service.finishToQc(main.sdNo);
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -362,6 +453,7 @@ class _MainList extends StatelessWidget {
     required this.emptyText,
     required this.service,
     required this.showDateOnCards,
+    required this.canFinishToQcBySdNo,
     required this.onTap,
     required this.onFinishToQc,
     required this.onRelease,
@@ -372,6 +464,7 @@ class _MainList extends StatelessWidget {
   final String emptyText;
   final PickListService service;
   final bool showDateOnCards;
+  final Map<String, bool> canFinishToQcBySdNo;
   final Future<void> Function(PickListMain) onTap;
   final Future<void> Function(PickListMain) onFinishToQc;
   final Future<void> Function(PickListMain) onRelease;
@@ -402,6 +495,7 @@ class _MainList extends StatelessWidget {
           return _PickMainCard(
             main: main,
             showDate: showDateOnCards,
+            canFinishToQc: canFinishToQcBySdNo[main.sdNo] ?? false,
             onTap: () => onTap(main),
             onFinishToQc: () => onFinishToQc(main),
             onRelease: () => onRelease(main),
@@ -416,6 +510,7 @@ class _PickMainCard extends StatelessWidget {
   const _PickMainCard({
     required this.main,
     this.showDate = false,
+    this.canFinishToQc = false,
     this.onTap,
     this.onFinishToQc,
     this.onRelease,
@@ -423,6 +518,7 @@ class _PickMainCard extends StatelessWidget {
 
   final PickListMain main;
   final bool showDate;
+  final bool canFinishToQc;
   final VoidCallback? onTap;
   final VoidCallback? onFinishToQc;
   final VoidCallback? onRelease;
@@ -514,7 +610,7 @@ class _PickMainCard extends StatelessWidget {
                         children: [
                           if (onFinishToQc != null)
                             TextButton.icon(
-                              onPressed: onFinishToQc,
+                              onPressed: canFinishToQc ? onFinishToQc : null,
                               icon: const Icon(Icons.lock_open, size: 18),
                               label: const Text('完成至待驗收'),
                             ),
@@ -1033,6 +1129,10 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   bool _loading = true;
   String? _error;
   late final PageController _pageController;
+  bool get _canFinishToQc {
+    if (_loading || _items.isEmpty) return false;
+    return _completed.length + _notFound.length == _items.length;
+  }
 
   @override
   void initState() {
@@ -1137,6 +1237,31 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   }
 
   Future<void> _finishAndLeave() async {
+    if (!_canFinishToQc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請先將所有項目標記為完成或找不到')));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認完成至待驗收'),
+        content: Text('確定將揀貨單 ${widget.main.sdNo} 標記為完成至待驗收？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     try {
       await _service.finishToQc(widget.main.sdNo);
       if (!mounted) return;
@@ -1164,7 +1289,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
         ),
         actions: [
           TextButton.icon(
-            onPressed: _loading ? null : _finishAndLeave,
+            onPressed: _canFinishToQc ? _finishAndLeave : null,
             icon: const Icon(Icons.lock_open, size: 20),
             label: const Text('完成至待驗收'),
           ),

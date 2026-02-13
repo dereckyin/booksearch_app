@@ -15,10 +15,12 @@ class CaptureScreen extends StatefulWidget {
     super.key,
     required this.showUi,
     required this.onToggleUi,
+    required this.isActive,
   });
 
   final bool showUi;
   final VoidCallback onToggleUi;
+  final bool isActive;
 
   @override
   State<CaptureScreen> createState() => _CaptureScreenState();
@@ -27,6 +29,7 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen>
     with WidgetsBindingObserver {
   CameraController? _cameraController;
+  bool _permissionsReady = false;
   bool _initializing = true;
   bool _busy = false;
   String _status = '準備就緒';
@@ -45,41 +48,76 @@ class _CaptureScreenState extends State<CaptureScreen>
   }
 
   @override
+  void didUpdateWidget(covariant CaptureScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive == widget.isActive) return;
+    if (widget.isActive) {
+      _resumeCameraFlow();
+    } else {
+      _disposeCamera();
+    }
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _cameraController?.dispose();
+    _disposeCamera();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!widget.isActive) return;
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
     }
     if (state == AppLifecycleState.inactive) {
-      _cameraController?.dispose();
+      _disposeCamera();
     } else if (state == AppLifecycleState.resumed) {
       _initCamera();
     }
   }
 
   Future<void> _initFlow() async {
-    await _ensurePermissions();
-    await _initCamera();
-    setState(() {
-      _initializing = false;
-    });
+    if (widget.isActive) {
+      await _ensurePermissions();
+      await _initCamera();
+    } else {
+      setState(() => _status = '切換到拍照頁後啟動相機');
+    }
+    if (!mounted) return;
+    setState(() => _initializing = false);
     _processPendingUploads();
   }
 
+  Future<void> _resumeCameraFlow() async {
+    setState(() => _initializing = true);
+    if (!_permissionsReady) {
+      await _ensurePermissions();
+    }
+    await _initCamera();
+    if (!mounted) return;
+    setState(() => _initializing = false);
+  }
+
+  void _disposeCamera() {
+    _cameraController?.dispose();
+    _cameraController = null;
+  }
+
   Future<void> _ensurePermissions() async {
+    if (_permissionsReady) return;
     final camStatus = await Permission.camera.request();
     if (!camStatus.isGranted) {
       setState(() => _status = '需要相機權限');
+      return;
     }
+    _permissionsReady = true;
   }
 
   Future<void> _initCamera() async {
+    if (!widget.isActive) return;
+    if (!_permissionsReady) return;
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -102,7 +140,11 @@ class _CaptureScreenState extends State<CaptureScreen>
       );
       await controller.initialize();
       await controller.setFlashMode(_flashMode);
-      if (!mounted) return;
+      if (!mounted || !widget.isActive) {
+        await controller.dispose();
+        return;
+      }
+      _disposeCamera();
       setState(() {
         _cameraController = controller;
         _status = '相機已就緒';

@@ -114,6 +114,7 @@ class _HomeShellState extends State<HomeShell> {
             onToggleUi: () => setState(() {
               _captureUiVisible = !_captureUiVisible;
             }),
+            isActive: _index == _captureTabIndex,
           ),
           UploadGalleryScreen(),
         ],
