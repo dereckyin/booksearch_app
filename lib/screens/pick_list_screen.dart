@@ -311,7 +311,7 @@ class _TodaySummaryCard extends StatelessWidget {
     }
     final parts = <String>[];
     if (summary != null) {
-      parts.add('今日 ${summary!.totalSheets} 張（${summary!.totalEntries} 筆）');
+      parts.add('今日 ${summary!.totalSheets} 批（${summary!.totalEntries} 筆）');
     }
     if (useGrouped) {
       parts.add('未撿貨 ${availableCount ?? 0}');

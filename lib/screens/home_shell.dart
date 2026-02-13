@@ -26,6 +26,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  static const _appVersion = '1.0(260213_01)';
   int _index = 0;
   int _pickListCount = 0;
   bool _captureUiVisible = false;
@@ -67,7 +68,17 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('揀貨單'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('揀貨單'),
+            const SizedBox(width: 6),
+            Text(
+              'v$_appVersion',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ],
+        ),
         actions: [
           if (widget.user != null)
             Padding(
