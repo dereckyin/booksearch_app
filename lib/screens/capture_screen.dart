@@ -68,13 +68,15 @@ class _CaptureScreenState extends State<CaptureScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!widget.isActive) return;
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
     if (state == AppLifecycleState.inactive) {
-      _disposeCamera();
+      if (_cameraController != null) {
+        _disposeCamera();
+      }
     } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+      // Returning from native pages (e.g. cropper) may leave controller null.
+      if (_cameraController == null || !_cameraController!.value.isInitialized) {
+        _initCamera();
+      }
     }
   }
 
