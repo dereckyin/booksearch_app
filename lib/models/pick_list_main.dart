@@ -17,6 +17,9 @@ class PickListMain {
     this.area,
     this.lockedByPhone,
     this.lockedByName,
+    this.finishedBy,
+    this.finishedByName,
+    this.finishedAt,
     this.companyId,
     this.deliver,
     this.cnno,
@@ -56,6 +59,9 @@ class PickListMain {
   final String? area;
   final String? lockedByPhone;
   final String? lockedByName;
+  final String? finishedBy;
+  final String? finishedByName;
+  final DateTime? finishedAt;
   final String? companyId;
   final String? deliver;
   final String? cnno;
@@ -201,11 +207,19 @@ class PickListMain {
       normalizedPickStage == 'picked_done_pending_qc' ||
       normalizedPickStage == 'qc_done';
   bool get isReadyToSortStage => normalizedPickStage == 'qc_done';
+  bool get isPickingStage => normalizedPickStage == 'picking';
+  bool get isNotStartedStage => normalizedPickStage == 'not_started';
   bool get isPicking =>
       normalizedLockStatus == 'locked_by_me' ||
       normalizedLockStatus == 'locked_by_other';
   bool get isAvailableToPick => normalizedLockStatus == 'available';
   String? get pickerDisplayName {
+    final finishedName = finishedByName?.trim();
+    if (finishedName != null && finishedName.isNotEmpty) return finishedName;
+    final finishedAccount = finishedBy?.trim();
+    if (finishedAccount != null && finishedAccount.isNotEmpty) {
+      return finishedAccount;
+    }
     final name = lockedByName?.trim();
     if (name != null && name.isNotEmpty) return name;
     final phone = lockedByPhone?.trim();
@@ -215,6 +229,8 @@ class PickListMain {
   PickFlowTabStatus get flowTabStatus {
     if (isReadyToSortStage) return PickFlowTabStatus.readyToSort;
     if (isPickedDoneStage) return PickFlowTabStatus.pickedDone;
+    if (isPickingStage) return PickFlowTabStatus.picking;
+    if (isNotStartedStage) return PickFlowTabStatus.unpicked;
     if (isPicking) return PickFlowTabStatus.picking;
     return PickFlowTabStatus.unpicked;
   }
@@ -283,6 +299,11 @@ class PickListMain {
       area: _asString(json['area']),
       lockedByPhone: _asString(json['locked_by_phone']),
       lockedByName: _asString(json['locked_by_name']),
+      finishedBy: _asString(json['finished_by'] ?? json['finishedBy']),
+      finishedByName: _asString(
+        json['finished_by_name'] ?? json['finishedByName'],
+      ),
+      finishedAt: parseDate(json['finished_at'] ?? json['finishedAt']),
       companyId: _asString(json['company_id']),
       deliver: _asString(json['deliver']),
       cnno: _asString(json['cnno']),

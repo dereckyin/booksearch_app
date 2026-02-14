@@ -75,7 +75,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     } else if (state == AppLifecycleState.resumed) {
       // Returning from native pages (e.g. cropper) may leave controller null.
       if (_cameraController == null || !_cameraController!.value.isInitialized) {
-        _initCamera();
+        _resumeCameraFlow();
       }
     }
   }
@@ -158,7 +158,11 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   Future<void> _capture() async {
     if (_busy) return;
-    final controller = _cameraController;
+    var controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      await _resumeCameraFlow();
+      controller = _cameraController;
+    }
     if (controller == null || !controller.value.isInitialized) return;
     setState(() {
       _busy = true;
