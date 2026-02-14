@@ -38,7 +38,7 @@ class _PickListScreenState extends State<PickListScreen>
   void initState() {
     super.initState();
     _service = widget.service ?? PickListService();
-    _tabController = TabController(length: 4, vsync: this, initialIndex: 0);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
     _load();
   }
 
@@ -164,7 +164,6 @@ class _PickListScreenState extends State<PickListScreen>
             Tab(text: '未撿貨'),
             Tab(text: '撿貨中'),
             Tab(text: '撿貨完'),
-            Tab(text: '可分貨'),
           ],
         ),
         Expanded(
@@ -253,17 +252,6 @@ class _PickListScreenState extends State<PickListScreen>
                                 onRelease: _onRelease,
                                 onRefresh: _reload,
                               ),
-                              _MainList(
-                                mains: grouped['可分貨']!,
-                                emptyText: '目前沒有可分貨的揀貨單',
-                                service: _service,
-                                showDateOnCards: widget.showDateOnCards,
-                                canFinishToQcBySdNo: _canFinishToQcBySdNo,
-                                onTap: _openItems,
-                                onFinishToQc: _onFinishToQc,
-                                onRelease: _onRelease,
-                                onRefresh: _reload,
-                              ),
                             ],
                           ),
                   ),
@@ -281,18 +269,18 @@ class _PickListScreenState extends State<PickListScreen>
       '未撿貨': [],
       '撿貨中': [],
       '撿貨完': [],
-      '可分貨': [],
     };
     for (final m in mains) {
-      result[m.flowTabLabel]!.add(m);
+      final key = m.flowTabLabel == '可分貨' ? '撿貨完' : m.flowTabLabel;
+      result[key]!.add(m);
     }
     return result;
   }
 
   Future<void> _openItems(PickListMain main) async {
-    if (main.isPickedDoneStage) return;
-    if (main.normalizedLockStatus == 'locked_by_other') return;
-    if (main.isAvailableToPick) {
+    final readOnly = main.isPickedDoneStage || main.isReadyToSortStage;
+    if (!readOnly && main.normalizedLockStatus == 'locked_by_other') return;
+    if (!readOnly && main.isAvailableToPick) {
       try {
         await _service.lock(main.sdNo);
       } catch (e) {
@@ -312,6 +300,7 @@ class _PickListScreenState extends State<PickListScreen>
               main: main,
               employeeId: widget.employeeId ?? '',
               service: _service,
+              readOnly: readOnly,
               onFinishedToQcAndPop: () {
                 _tabController.animateTo(2);
                 _reload();
@@ -534,7 +523,8 @@ class _PickMainCard extends StatelessWidget {
     final isLockedByMe = main.normalizedLockStatus == 'locked_by_me';
     final isLockedByOther = main.normalizedLockStatus == 'locked_by_other';
     final isDone = main.isPickedDoneStage;
-    final canTap = !isDone && (isAvailable || isLockedByMe);
+    final isReadOnlyFlow = main.isPickedDoneStage || main.isReadyToSortStage;
+    final canTap = isReadOnlyFlow || (isAvailable || isLockedByMe);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -1104,12 +1094,14 @@ class PickListItemsScreen extends StatefulWidget {
     required this.main,
     required this.employeeId,
     this.service,
+    this.readOnly = false,
     this.onFinishedToQcAndPop,
   });
 
   final PickListMain main;
   final String employeeId;
   final PickListService? service;
+  final bool readOnly;
 
   /// 完成至待驗收（finish-to-qc）後呼叫，例如刷新列表並切換 tab
   final VoidCallback? onFinishedToQcAndPop;
@@ -1129,7 +1121,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   bool _loading = true;
   String? _error;
   late final PageController _pageController;
+  bool get _isReadOnly => widget.readOnly;
   bool get _canFinishToQc {
+    if (_isReadOnly) return false;
     if (_loading || _items.isEmpty) return false;
     return _completed.length + _notFound.length == _items.length;
   }
@@ -1164,10 +1158,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       );
       if (!mounted) return;
       final itemKeys = data.map((e) => _itemKeyForItem(e)).toSet();
-      final (completed, notFound) = await _restoreProgress(
-        widget.main.sdNo,
-        itemKeys,
-      );
+      final (completed, notFound) = _isReadOnly
+          ? (<String>{}, <String>{})
+          : await _restoreProgress(widget.main.sdNo, itemKeys);
       if (!mounted) return;
       setState(() {
         _items = data;
@@ -1237,6 +1230,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   }
 
   Future<void> _finishAndLeave() async {
+    if (_isReadOnly) return;
     if (!_canFinishToQc) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1288,11 +1282,12 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           overflow: TextOverflow.visible,
         ),
         actions: [
-          TextButton.icon(
-            onPressed: _canFinishToQc ? _finishAndLeave : null,
-            icon: const Icon(Icons.lock_open, size: 20),
-            label: const Text('完成至待驗收'),
-          ),
+          if (!_isReadOnly)
+            TextButton.icon(
+              onPressed: _canFinishToQc ? _finishAndLeave : null,
+              icon: const Icon(Icons.lock_open, size: 20),
+              label: const Text('完成至待驗收'),
+            ),
         ],
       ),
       body: _buildBody(),
@@ -1306,7 +1301,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     final totalDone = _completed.length;
     final totalNotFound = _notFound.length;
     final totalUndone = _items.length - totalDone;
-    final filtered = _filteredIndexes();
+    final filtered = _isReadOnly
+        ? List<int>.generate(_items.length, (i) => i)
+        : _filteredIndexes();
 
     bool isItemView = false;
     Widget content;
@@ -1390,7 +1387,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                         notFound: notFound,
                         hasShelfImage: hasShelfImage,
                         shelfRating: _shelfRatings[itemKey] ?? 5,
-                        onShelfRatingChanged: hasShelfImage
+                        onShelfRatingChanged: !_isReadOnly && hasShelfImage
                             ? (v) => _onShelfRatingChanged(pageItem, v)
                             : null,
                         allShelfLabels: shelfLabels,
@@ -1412,12 +1409,12 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
-                  onPressed: () => _markComplete(item),
+                  onPressed: _isReadOnly ? null : () => _markComplete(item),
                   child: Text(isCompleted ? '已完成' : '完成'),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.tonal(
-                  onPressed: () => _markNotFound(item),
+                  onPressed: _isReadOnly ? null : () => _markNotFound(item),
                   style: FilledButton.styleFrom(
                     backgroundColor: isNotFound
                         ? Theme.of(context).colorScheme.errorContainer
@@ -1448,31 +1445,36 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           Row(
             children: [
               Expanded(
-                child: SegmentedButton<bool>(
-                  segments: [
-                    ButtonSegment(
-                      value: false,
-                      label: Text('未撿貨 ($totalUndone)'),
-                      icon: const Icon(Icons.list_alt),
-                    ),
-                    ButtonSegment(
-                      value: true,
-                      label: Text('已撿貨 ($totalDone)'),
-                      icon: const Icon(Icons.check_circle),
-                    ),
-                  ],
-                  selected: {_showCompleted},
-                  onSelectionChanged: (sel) {
-                    final value = sel.first;
-                    setState(() {
-                      _showCompleted = value;
-                      _currentVisibleIndex = 0;
-                    });
-                    if (_pageController.hasClients) {
-                      _pageController.jumpToPage(0);
-                    }
-                  },
-                ),
+                child: _isReadOnly
+                    ? Text(
+                        '唯讀檢視',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      )
+                    : SegmentedButton<bool>(
+                        segments: [
+                          ButtonSegment(
+                            value: false,
+                            label: Text('未撿貨 ($totalUndone)'),
+                            icon: const Icon(Icons.list_alt),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            label: Text('已撿貨 ($totalDone)'),
+                            icon: const Icon(Icons.check_circle),
+                          ),
+                        ],
+                        selected: {_showCompleted},
+                        onSelectionChanged: (sel) {
+                          final value = sel.first;
+                          setState(() {
+                            _showCompleted = value;
+                            _currentVisibleIndex = 0;
+                          });
+                          if (_pageController.hasClients) {
+                            _pageController.jumpToPage(0);
+                          }
+                        },
+                      ),
               ),
             ],
           ),
@@ -1485,7 +1487,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '找不到：$totalNotFound',
+                    _isReadOnly ? '總品項：${_items.length}' : '找不到：$totalNotFound',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
@@ -1546,6 +1548,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   }
 
   void _markComplete(PickListItem item) {
+    if (_isReadOnly) return;
     final key = _itemKey(item);
     setState(() {
       if (_completed.contains(key)) {
@@ -1563,6 +1566,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   }
 
   Future<void> _onShelfRatingChanged(PickListItem item, int rank) async {
+    if (_isReadOnly) return;
     final key = _itemKey(item);
     setState(() => _shelfRatings[key] = rank);
     try {
@@ -1581,6 +1585,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   }
 
   Future<void> _markNotFound(PickListItem item) async {
+    if (_isReadOnly) return;
     final key = _itemKey(item);
     if (_notFound.contains(key)) {
       setState(() {

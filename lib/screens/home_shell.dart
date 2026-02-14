@@ -26,12 +26,25 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  static const String _buildSeqRaw = String.fromEnvironment(
+    'BUILD_SEQ',
+    defaultValue: '01',
+  );
+
+  static String _normalizedBuildSeq() {
+    final digits = _buildSeqRaw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '01';
+    final value = int.tryParse(digits);
+    if (value == null || value <= 0) return '01';
+    return value.toString().padLeft(2, '0');
+  }
+
   static String _buildDateVersion() {
     final now = DateTime.now();
     final y = now.year.toString();
     final m = now.month.toString().padLeft(2, '0');
     final d = now.day.toString().padLeft(2, '0');
-    return '$y$m$d';
+    return '${y}${m}${d}_${_normalizedBuildSeq()}';
   }
 
   final String _appVersion = _buildDateVersion();
