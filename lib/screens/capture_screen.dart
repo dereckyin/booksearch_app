@@ -111,7 +111,23 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (_permissionsReady) return;
     final camStatus = await Permission.camera.request();
     if (!camStatus.isGranted) {
-      setState(() => _status = '需要相機權限');
+      if (!mounted) return;
+      if (camStatus.isPermanentlyDenied || camStatus.isRestricted) {
+        setState(() => _status = '相機權限被停用，請到「設定」開啟相機權限');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('相機權限被停用，請到設定開啟'),
+            action: SnackBarAction(
+              label: '前往設定',
+              onPressed: () {
+                openAppSettings();
+              },
+            ),
+          ),
+        );
+      } else {
+        setState(() => _status = '需要相機權限');
+      }
       return;
     }
     _permissionsReady = true;
