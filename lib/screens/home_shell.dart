@@ -26,7 +26,15 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  static const _appVersion = '1.0(260213_01)';
+  static String _buildDateVersion() {
+    final now = DateTime.now();
+    final y = now.year.toString();
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '$y$m$d';
+  }
+
+  final String _appVersion = _buildDateVersion();
   int _index = 0;
   int _pickListCount = 0;
   bool _captureUiVisible = false;
