@@ -7,6 +7,7 @@ import '../models/auth_user.dart';
 import '../models/pick_list_main.dart';
 import '../models/pick_list_item.dart';
 import '../models/picker_info.dart';
+import '../models/cannot_pick_report.dart';
 
 /// Service for pick-list API（揀貨單手機端開發指南）.
 /// 需登入的 API 請先設定 [token]；收到 401 時會呼叫 [onUnauthorized]。
@@ -210,6 +211,47 @@ class PickListService {
     _checkUnauthorized(resp);
     if (resp.statusCode >= 200 && resp.statusCode < 300) return;
     throw Exception('揀不到回報失敗 ${resp.statusCode}: ${resp.body}');
+  }
+
+  /// 今日揀不到清單（集中頁簽用）：GET /api/v1/picking-lists/cannot-pick/today
+  ///
+  /// **後端開發規格**
+  /// - 路徑：GET /api/v1/picking-lists/cannot-pick/today
+  /// - Header：Authorization: Bearer {token}
+  /// - Query（建議，可選）：
+  ///   - date=YYYY-MM-DD（預設後端伺服器「今天」）
+  ///   - scope=all|mine（本需求：all）
+  /// - 行為：
+  ///   - 回傳「今天」所有撿貨員的 cannot-pick 回報（需要權限控管請後端處理）
+  /// - 成功 (200)：回傳 JSON Array，每筆至少包含：
+  ///   - sd_no, prod_id, rk_id, reason, remark?, reported_at
+  ///   - reported_by_name?, reported_by_phone?
+  ///   - title?, image_url?（可選，若後端方便可一起帶）
+  Future<List<CannotPickReport>> fetchCannotPickToday({
+    bool all = true,
+    String? date,
+  }) async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/cannot-pick/today',
+    ).replace(
+      queryParameters: {
+        'scope': all ? 'all' : 'mine',
+        if (date != null && date.isNotEmpty) 'date': date,
+      },
+    );
+    final resp = await _client.get(uri, headers: _headers());
+    _checkUnauthorized(resp);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('Cannot-pick today API ${resp.statusCode}: ${resp.body}');
+    }
+    final body = jsonDecode(resp.body);
+    if (body is! List) {
+      throw Exception('Cannot-pick today unexpected response format');
+    }
+    return body
+        .whereType<Map<String, dynamic>>()
+        .map(CannotPickReport.fromJson)
+        .toList();
   }
 
   /// 櫃位現場圖評分（feedback）：POST /api/v1/picking-lists/shelf-feedback

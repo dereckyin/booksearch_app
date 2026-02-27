@@ -44,7 +44,7 @@ class _HomeShellState extends State<HomeShell> {
     final y = now.year.toString();
     final m = now.month.toString().padLeft(2, '0');
     final d = now.day.toString().padLeft(2, '0');
-    return '${y}${m}${d}_${_normalizedBuildSeq()}';
+    return '$y$m${d}_${_normalizedBuildSeq()}';
   }
 
   final String _appVersion = _buildDateVersion();

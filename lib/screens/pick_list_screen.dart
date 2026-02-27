@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/api_config.dart';
+import '../models/cannot_pick_report.dart';
 import '../models/pick_list_item.dart';
 import '../models/pick_list_main.dart';
 import '../services/picklist_service.dart';
@@ -31,14 +32,16 @@ class _PickListScreenState extends State<PickListScreen>
   late final PickListService _service;
   Future<List<PickListMain>>? _futureMain;
   Future<_SummaryData>? _futureSummary;
+  Future<List<CannotPickReport>>? _futureCannotPick;
   late final TabController _tabController;
   final Map<String, bool> _canFinishToQcBySdNo = {};
+  static const int _tabDone = 3;
 
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? PickListService();
-    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
+    _tabController = TabController(length: 5, vsync: this, initialIndex: 0);
     _load();
   }
 
@@ -52,6 +55,7 @@ class _PickListScreenState extends State<PickListScreen>
     setState(() {
       _futureMain = _service.fetchPickListMain();
       _futureSummary = _loadSummary();
+      _futureCannotPick = _service.fetchCannotPickToday(all: true);
       _canFinishToQcBySdNo.clear();
     });
     _futureMain
@@ -161,9 +165,11 @@ class _PickListScreenState extends State<PickListScreen>
           labelStyle: Theme.of(context).textTheme.labelMedium,
           unselectedLabelStyle: Theme.of(context).textTheme.labelSmall,
           tabs: const [
-            Tab(text: '未撿貨'),
+            Tab(text: '未撿貨(A)'),
+            Tab(text: '未撿貨(B)'),
             Tab(text: '撿貨中'),
             Tab(text: '撿貨完'),
+            Tab(text: '找不到'),
           ],
         ),
         Expanded(
@@ -206,7 +212,8 @@ class _PickListScreenState extends State<PickListScreen>
                       return _TodaySummaryCard(
                         summary: d.summary,
                         myToday: d.myToday,
-                        availableCount: grouped['未撿貨']!.length,
+                        availableCount: grouped['未撿貨(A)']!.length +
+                            grouped['未撿貨(B)']!.length,
                         pickingCount: grouped['撿貨中']!.length,
                         completedCount: grouped['撿貨完']!.length,
                         onRefresh: _reload,
@@ -220,8 +227,19 @@ class _PickListScreenState extends State<PickListScreen>
                             controller: _tabController,
                             children: [
                               _MainList(
-                                mains: grouped['未撿貨']!,
-                                emptyText: '目前沒有未撿貨的揀貨單',
+                                mains: grouped['未撿貨(A)']!,
+                                emptyText: '目前沒有未撿貨(A)的揀貨單',
+                                service: _service,
+                                showDateOnCards: widget.showDateOnCards,
+                                canFinishToQcBySdNo: _canFinishToQcBySdNo,
+                                onTap: _openItems,
+                                onFinishToQc: _onFinishToQc,
+                                onRelease: _onRelease,
+                                onRefresh: _reload,
+                              ),
+                              _MainList(
+                                mains: grouped['未撿貨(B)']!,
+                                emptyText: '目前沒有未撿貨(B)的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
                                 canFinishToQcBySdNo: _canFinishToQcBySdNo,
@@ -252,6 +270,16 @@ class _PickListScreenState extends State<PickListScreen>
                                 onRelease: _onRelease,
                                 onRefresh: _reload,
                               ),
+                              _CannotPickTodayTab(
+                                future: _futureCannotPick,
+                                onRefresh: () async {
+                                  setState(() {
+                                    _futureCannotPick =
+                                        _service.fetchCannotPickToday(all: true);
+                                  });
+                                  await _futureCannotPick;
+                                },
+                              ),
                             ],
                           ),
                   ),
@@ -266,15 +294,30 @@ class _PickListScreenState extends State<PickListScreen>
 
   Map<String, List<PickListMain>> _groupMainByStatus(List<PickListMain> mains) {
     final Map<String, List<PickListMain>> result = {
-      '未撿貨': [],
+      '未撿貨(A)': [],
+      '未撿貨(B)': [],
       '撿貨中': [],
       '撿貨完': [],
     };
     for (final m in mains) {
       final key = m.flowTabLabel == '可分貨' ? '撿貨完' : m.flowTabLabel;
-      result[key]!.add(m);
+      if (key == '未撿貨') {
+        result[_bucketUndoneArea(m)]!.add(m);
+      } else {
+        result[key]!.add(m);
+      }
     }
     return result;
+  }
+
+  String _bucketUndoneArea(PickListMain m) {
+    final area = (m.area ?? '').trim().toUpperCase();
+    if (area == 'A') return '未撿貨(A)';
+    if (area == 'B') return '未撿貨(B)';
+    final sd = m.sdNo.toUpperCase();
+    if (sd.contains('(A)')) return '未撿貨(A)';
+    if (sd.contains('(B)')) return '未撿貨(B)';
+    return '未撿貨(A)';
   }
 
   Future<void> _openItems(PickListMain main) async {
@@ -302,7 +345,7 @@ class _PickListScreenState extends State<PickListScreen>
               service: _service,
               readOnly: readOnly,
               onFinishedToQcAndPop: () {
-                _tabController.animateTo(2);
+                _tabController.animateTo(_tabDone);
                 _reload();
               },
             ),
@@ -329,7 +372,7 @@ class _PickListScreenState extends State<PickListScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已完成至待驗收')));
-      _tabController.animateTo(2);
+      _tabController.animateTo(_tabDone);
       _reload();
     } catch (e) {
       if (!mounted) return;
@@ -362,6 +405,138 @@ class _SummaryData {
   _SummaryData({this.summary, this.myToday});
   final MainSummary? summary;
   final MyTodayResponse? myToday;
+}
+
+class _CannotPickTodayTab extends StatelessWidget {
+  const _CannotPickTodayTab({
+    required this.future,
+    required this.onRefresh,
+  });
+
+  final Future<List<CannotPickReport>>? future;
+  final Future<void> Function() onRefresh;
+
+  String _fmt(DateTime dt) {
+    if (dt.millisecondsSinceEpoch == 0) return '-';
+    final y = dt.year.toString();
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<CannotPickReport>>(
+      future: future,
+      builder: (context, snapshot) {
+        if (future == null || snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('載入失敗'),
+                const SizedBox(height: 8),
+                Text('${snapshot.error}'),
+                const SizedBox(height: 8),
+                ElevatedButton(onPressed: onRefresh, child: const Text('重試')),
+              ],
+            ),
+          );
+        }
+
+        final items = (snapshot.data ?? []).toList()
+          ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+
+        return RefreshIndicator(
+          onRefresh: onRefresh,
+          child: items.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 48),
+                    Center(child: Text('今天沒有找不到回報')),
+                  ],
+                )
+              : ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: items.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final r = items[index];
+                    final who = (r.reportedByName != null &&
+                            r.reportedByName!.isNotEmpty)
+                        ? r.reportedByName!
+                        : (r.reportedByPhone ?? '-');
+                    return Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              r.title?.isNotEmpty == true
+                                  ? r.title!
+                                  : '店內碼：${r.prodId}',
+                              style: Theme.of(context).textTheme.titleMedium,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                _chip(context, '揀貨單', r.sdNo),
+                                _chip(context, '櫃號', r.rkId),
+                                _chip(context, '原因', r.reason),
+                                _chip(context, '回報者', who),
+                              ],
+                            ),
+                            if (r.remark != null && r.remark!.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                '備註：${r.remark}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            Text(
+                              _fmt(r.reportedAt),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _chip(BuildContext context, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label：$value',
+        style: Theme.of(context).textTheme.labelMedium,
+      ),
+    );
+  }
 }
 
 class _TodaySummaryCard extends StatelessWidget {
