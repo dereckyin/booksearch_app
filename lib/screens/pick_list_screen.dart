@@ -644,6 +644,10 @@ class _CannotPickOrderDetailScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             Text('店內碼：${r.prodId}'),
+                            if (r.logcode != null && r.logcode!.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text('物流條碼：${r.logcode}'),
+                            ],
                             const SizedBox(height: 4),
                             Text('數量：$qtyText'),
                           ],

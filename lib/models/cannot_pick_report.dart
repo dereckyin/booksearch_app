@@ -4,6 +4,7 @@ class CannotPickReport {
     required this.prodId,
     required this.rkId,
     required this.reason,
+    this.logcode,
     this.qty,
     this.remark,
     required this.reportedAt,
@@ -17,6 +18,7 @@ class CannotPickReport {
   final String prodId;
   final String rkId;
   final String reason;
+  final String? logcode;
   final num? qty;
   final String? remark;
   final DateTime reportedAt;
@@ -30,6 +32,7 @@ class CannotPickReport {
     final prodId = '${json['prod_id'] ?? json['prodId'] ?? ''}'.trim();
     final rkId = '${json['rk_id'] ?? json['rkId'] ?? ''}'.trim();
     final reason = '${json['reason'] ?? ''}'.trim();
+    final logcodeRaw = '${json['logcode'] ?? json['log_code'] ?? ''}'.trim();
     num? parseNum(dynamic value) {
       if (value == null) return null;
       final text = value.toString().trim();
@@ -60,6 +63,7 @@ class CannotPickReport {
       prodId: prodId,
       rkId: rkId,
       reason: reason,
+      logcode: logcodeRaw.isEmpty ? null : logcodeRaw,
       qty: qty,
       remark: remarkRaw.isEmpty ? null : remarkRaw,
       reportedAt: reportedAt,
