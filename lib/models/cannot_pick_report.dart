@@ -4,6 +4,7 @@ class CannotPickReport {
     required this.prodId,
     required this.rkId,
     required this.reason,
+    this.qty,
     this.remark,
     required this.reportedAt,
     this.reportedByName,
@@ -16,6 +17,7 @@ class CannotPickReport {
   final String prodId;
   final String rkId;
   final String reason;
+  final num? qty;
   final String? remark;
   final DateTime reportedAt;
   final String? reportedByName;
@@ -28,6 +30,18 @@ class CannotPickReport {
     final prodId = '${json['prod_id'] ?? json['prodId'] ?? ''}'.trim();
     final rkId = '${json['rk_id'] ?? json['rkId'] ?? ''}'.trim();
     final reason = '${json['reason'] ?? ''}'.trim();
+    num? parseNum(dynamic value) {
+      if (value == null) return null;
+      final text = value.toString().trim();
+      if (text.isEmpty) return null;
+      return num.tryParse(text);
+    }
+    final qty = parseNum(
+      json['must_qty'] ??
+          json['qty'] ??
+          json['quantity'] ??
+          json['ttl_must_qty'],
+    );
     final remarkRaw = '${json['remark'] ?? ''}'.trim();
     final reportedAtRaw = json['reported_at'] ?? json['reportedAt'];
     final reportedAt = DateTime.tryParse('${reportedAtRaw ?? ''}') ??
@@ -46,6 +60,7 @@ class CannotPickReport {
       prodId: prodId,
       rkId: rkId,
       reason: reason,
+      qty: qty,
       remark: remarkRaw.isEmpty ? null : remarkRaw,
       reportedAt: reportedAt,
       reportedByName: byName.isEmpty ? null : byName,

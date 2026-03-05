@@ -272,6 +272,9 @@ class _PickListScreenState extends State<PickListScreen>
                               ),
                               _CannotPickTodayTab(
                                 future: _futureCannotPick,
+                                mainBySdNo: {
+                                  for (final m in mains) m.sdNo: m,
+                                },
                                 onRefresh: () async {
                                   setState(() {
                                     _futureCannotPick =
@@ -410,10 +413,12 @@ class _SummaryData {
 class _CannotPickTodayTab extends StatelessWidget {
   const _CannotPickTodayTab({
     required this.future,
+    required this.mainBySdNo,
     required this.onRefresh,
   });
 
   final Future<List<CannotPickReport>>? future;
+  final Map<String, PickListMain> mainBySdNo;
   final Future<void> Function() onRefresh;
 
   String _fmt(DateTime dt) {
@@ -449,12 +454,25 @@ class _CannotPickTodayTab extends StatelessWidget {
           );
         }
 
-        final items = (snapshot.data ?? []).toList()
-          ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+        final items = snapshot.data ?? [];
+        final grouped = <String, List<CannotPickReport>>{};
+        for (final r in items) {
+          grouped.putIfAbsent(r.sdNo, () => <CannotPickReport>[]).add(r);
+        }
+        final groups = grouped.entries.map((entry) {
+          final reports = entry.value.toList()
+            ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+          return _CannotPickOrderGroup(
+            sdNo: entry.key,
+            main: mainBySdNo[entry.key],
+            reports: reports,
+          );
+        }).toList()
+          ..sort((a, b) => b.latestReportedAt.compareTo(a.latestReportedAt));
 
         return RefreshIndicator(
           onRefresh: onRefresh,
-          child: items.isEmpty
+          child: groups.isEmpty
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
@@ -465,54 +483,47 @@ class _CannotPickTodayTab extends StatelessWidget {
               : ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(12),
-                  itemCount: items.length,
+                  itemCount: groups.length,
                   separatorBuilder: (context, index) =>
                       const SizedBox(height: 8),
                   itemBuilder: (context, index) {
-                    final r = items[index];
-                    final who = (r.reportedByName != null &&
-                            r.reportedByName!.isNotEmpty)
-                        ? r.reportedByName!
-                        : (r.reportedByPhone ?? '-');
+                    final g = groups[index];
+                    final main = g.main;
+                    final channel = main?.channelDisplayText ?? '-';
                     return Card(
                       clipBehavior: Clip.antiAlias,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              r.title?.isNotEmpty == true
-                                  ? r.title!
-                                  : '店內碼：${r.prodId}',
-                              style: Theme.of(context).textTheme.titleMedium,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => _CannotPickOrderDetailScreen(
+                                group: g,
+                              ),
                             ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                _chip(context, '揀貨單', r.sdNo),
-                                _chip(context, '櫃號', r.rkId),
-                                _chip(context, '原因', r.reason),
-                                _chip(context, '回報者', who),
-                              ],
-                            ),
-                            if (r.remark != null && r.remark!.isNotEmpty) ...[
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '揀貨單號：${g.sdNo}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text('流程：找不到'),
+                              const SizedBox(height: 4),
+                              Text('通路：$channel'),
+                              const SizedBox(height: 4),
+                              Text('件數：${g.reports.length}'),
                               const SizedBox(height: 8),
                               Text(
-                                '備註：${r.remark}',
-                                style: Theme.of(context).textTheme.bodyMedium,
+                                '最近回報：${_fmt(g.latestReportedAt)}',
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
-                            const SizedBox(height: 8),
-                            Text(
-                              _fmt(r.reportedAt),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -520,6 +531,151 @@ class _CannotPickTodayTab extends StatelessWidget {
                 ),
         );
       },
+    );
+  }
+
+}
+
+class _CannotPickOrderGroup {
+  _CannotPickOrderGroup({
+    required this.sdNo,
+    required this.reports,
+    this.main,
+  });
+
+  final String sdNo;
+  final PickListMain? main;
+  final List<CannotPickReport> reports;
+
+  DateTime get latestReportedAt =>
+      reports.isEmpty ? DateTime.fromMillisecondsSinceEpoch(0) : reports.first.reportedAt;
+}
+
+class _CannotPickOrderDetailScreen extends StatelessWidget {
+  const _CannotPickOrderDetailScreen({required this.group});
+
+  final _CannotPickOrderGroup group;
+
+  String _fmt(DateTime dt) {
+    if (dt.millisecondsSinceEpoch == 0) return '-';
+    final y = dt.year.toString();
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
+
+  String? _resolveImageUrl(CannotPickReport report) {
+    final raw = report.imageUrl?.trim() ?? '';
+    if (raw.isNotEmpty) {
+      return raw.startsWith('http')
+          ? raw
+          : Uri.parse(ApiConfig().uploadBase).resolve(raw).toString();
+    }
+    if (report.prodId.isNotEmpty) {
+      return 'https://media.taaze.tw/showLargeImage.html?sc=${report.prodId}&height=170&width=250';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reports = group.reports;
+    return Scaffold(
+      appBar: AppBar(title: Text('找不到明細 ${group.sdNo}')),
+      body: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemCount: reports.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final r = reports[index];
+          final who = (r.reportedByName != null && r.reportedByName!.isNotEmpty)
+              ? r.reportedByName!
+              : (r.reportedByPhone ?? '-');
+          final imageUrl = _resolveImageUrl(r);
+          final qtyText = r.qty == null ? '-' : '${r.qty}';
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 84,
+                        height: 112,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: imageUrl == null
+                              ? Container(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
+                                  alignment: Alignment.center,
+                                  child: const Icon(Icons.image_not_supported),
+                                )
+                              : Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                    alignment: Alignment.center,
+                                    child:
+                                        const Icon(Icons.broken_image_outlined),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              r.title?.isNotEmpty == true ? r.title! : '（無書名）',
+                              style: Theme.of(context).textTheme.titleSmall,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 8),
+                            Text('店內碼：${r.prodId}'),
+                            const SizedBox(height: 4),
+                            Text('數量：$qtyText'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      _chip(context, '櫃號', r.rkId),
+                      _chip(context, '揀不到原因', r.reason),
+                      _chip(context, '回報者', who),
+                    ],
+                  ),
+                  if (r.remark != null && r.remark!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('備註：${r.remark}'),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    _fmt(r.reportedAt),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1868,10 +2024,32 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
 
   List<int> _filteredIndexes() {
     final result = <int>[];
+    if (_showCompleted) {
+      // 已撿貨顯示倒序，讓使用者優先看到剛剛完成的項目。
+      for (var i = _items.length - 1; i >= 0; i--) {
+        final key = _itemKey(_items[i]);
+        final isDone = _completed.contains(key);
+        if (isDone) result.add(i);
+      }
+      return result;
+    }
+
+    // 找不到項目放前面且倒序，方便回看剛剛回報的品項。
+    for (var i = _items.length - 1; i >= 0; i--) {
+      final key = _itemKey(_items[i]);
+      final isDone = _completed.contains(key);
+      final isNotFound = _notFound.contains(key);
+      if (!isDone && isNotFound) {
+        result.add(i);
+      }
+    }
+
+    // 其餘未撿貨項目維持原始順序。
     for (var i = 0; i < _items.length; i++) {
       final key = _itemKey(_items[i]);
       final isDone = _completed.contains(key);
-      if (_showCompleted ? isDone : !isDone) {
+      final isNotFound = _notFound.contains(key);
+      if (!isDone && !isNotFound) {
         result.add(i);
       }
     }
