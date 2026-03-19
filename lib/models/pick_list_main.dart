@@ -180,6 +180,13 @@ class PickListMain {
     'BB': '僅B區',
     'XX': '不分區',
   };
+  /// 流程顯示用區分標籤：A-B 單、A 單、B 單、不分區
+  static const Map<String, String> flowAreaDisplayLabels = {
+    'AB': 'A-B 單',
+    'AA': 'A 單',
+    'BB': 'B 單',
+    'XX': '不分區',
+  };
 
   String? get statusText => _label(statusFlg, statusLabels);
   String? get deliverText => _label(deliver, deliverLabels);
@@ -274,6 +281,8 @@ class PickListMain {
   String? get airbagText => _label(useAirbagFlg, useAirbagLabels);
   String? get repackageText => _label(repackageFlg, boolLabels);
   String? get pkAreaText => _label(pkAreaFlg, pkAreaLabels);
+  /// 流程顯示用區分標籤（A-B 單、A 單、B 單、不分區），用於「流程：檢貨中 (不分區)」格式
+  String? get flowAreaDisplayText => _label(pkAreaFlg, flowAreaDisplayLabels);
 
   factory PickListMain.fromJson(Map<String, dynamic> json) {
     DateTime? parseDate(dynamic value) {

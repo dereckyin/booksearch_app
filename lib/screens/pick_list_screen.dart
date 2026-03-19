@@ -913,7 +913,7 @@ class _PickMainCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '流程：${main.flowTabLabel}',
+                      '流程：${main.flowTabLabel}${main.flowAreaDisplayText != null ? ' (${main.flowAreaDisplayText})' : ''}',
                     ),
                     const SizedBox(height: 4),
                     Text(
