@@ -396,7 +396,8 @@ class _PickListScreenState extends State<PickListScreen>
             Tab(text: '找不到'),
           ],
         ),
-        if (_tabController.index < 4)
+        // 多選合併僅在未撿貨(A)/(B)；撿貨中／撿貨完不開放新建合併
+        if (_tabController.index < 2)
           Material(
             color: Theme.of(
               context,
@@ -551,8 +552,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 onFinishToQcRow: _onFinishToQcRow,
                                 onReleaseRow: _onReleaseRow,
                                 onRefresh: _reload,
-                                selectionMode: _selectionMode &&
-                                    _mergeSelectTabIndex == 2,
+                                selectionMode: false,
                                 selectedSdNos: _selectedSdNos,
                                 mergeSelectable: _mergeSelectable,
                                 onToggleSelect: _toggleSelect,
@@ -570,8 +570,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 onFinishToQcRow: _onFinishToQcRow,
                                 onReleaseRow: _onReleaseRow,
                                 onRefresh: _reload,
-                                selectionMode: _selectionMode &&
-                                    _mergeSelectTabIndex == 3,
+                                selectionMode: false,
                                 selectedSdNos: _selectedSdNos,
                                 mergeSelectable: _mergeSelectable,
                                 onToggleSelect: _toggleSelect,
@@ -1221,7 +1220,7 @@ class _MainList extends StatelessWidget {
     required this.onToggleSelect,
   });
 
-  /// 每列一張單，或合併多張（僅 [撿貨中] 會出現多張一列）
+  /// 每列一張單，或合併多張（[撿貨中]／[撿貨完] 可能為本機摺疊之多張一列）
   final List<List<PickListMain>> rows;
   final String emptyText;
   final PickListService service;
