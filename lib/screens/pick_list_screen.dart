@@ -8,6 +8,23 @@ import '../models/cannot_pick_report.dart';
 import '../models/pick_list_item.dart';
 import '../models/pick_list_main.dart';
 import '../services/picklist_service.dart';
+import '../utils/pick_list_merge.dart';
+
+/// 合併卡／明細：將 `（一）` 等序號後綴以紅字顯示。
+TextSpan _textSpanWithRedMergeOrdinal(String text, TextStyle? style) {
+  final (pre, suf) = splitMergeOrdinalSuffix(text);
+  if (suf == null) return TextSpan(text: text, style: style);
+  return TextSpan(
+    style: style,
+    children: [
+      TextSpan(text: pre),
+      TextSpan(
+        text: suf,
+        style: const TextStyle(color: Colors.red),
+      ),
+    ],
+  );
+}
 
 class PickListScreen extends StatefulWidget {
   const PickListScreen({
@@ -36,36 +53,159 @@ class _PickListScreenState extends State<PickListScreen>
   late final TabController _tabController;
   final Map<String, bool> _canFinishToQcBySdNo = {};
   static const int _tabDone = 3;
+  bool _selectionMode = false;
+  final Set<String> _selectedSdNos = {};
+  int? _mergeSelectTabIndex;
+  /// 本機紀錄的合併領單組（用於 [撿貨中] 摺成單張卡片）
+  List<List<String>> _cachedMergeGroups = [];
+  /// 曾「合併完成至待驗收」的單號組（用於 [撿貨完] 摺成與撿貨中相同版面）
+  List<List<String>> _cachedCompletedMergeGroups = [];
 
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? PickListService();
     _tabController = TabController(length: 5, vsync: this, initialIndex: 0);
+    _tabController.addListener(_onPickTabChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onPickTabChanged);
     _tabController.dispose();
     super.dispose();
   }
 
-  void _load() {
+  void _onPickTabChanged() {
+    if (_tabController.indexIsChanging) return;
     setState(() {
-      _futureMain = _service.fetchPickListMain();
+      if (_selectionMode &&
+          _mergeSelectTabIndex != null &&
+          _tabController.index != _mergeSelectTabIndex) {
+        _selectionMode = false;
+        _selectedSdNos.clear();
+        _mergeSelectTabIndex = null;
+      }
+    });
+  }
+
+  bool _mergeSelectable(PickListMain m) {
+    final readOnly = m.isPickedDoneStage || m.isReadyToSortStage;
+    if (readOnly) return false;
+    if (m.normalizedLockStatus == 'locked_by_other') return false;
+    return m.isAvailableToPick || m.normalizedLockStatus == 'locked_by_me';
+  }
+
+  void _toggleSelect(PickListMain m) {
+    if (!_mergeSelectable(m)) return;
+    setState(() {
+      if (_selectedSdNos.contains(m.sdNo)) {
+        _selectedSdNos.remove(m.sdNo);
+      } else {
+        _selectedSdNos.add(m.sdNo);
+      }
+    });
+  }
+
+  Future<void> _openMergedItems() async {
+    if (_selectedSdNos.length < 2) return;
+    final all = await _service.fetchPickListMain();
+    if (!mounted) return;
+    final picked = all.where((m) => _selectedSdNos.contains(m.sdNo)).toList();
+    if (picked.length < 2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('選取單據已變更，請重新選擇')),
+        );
+        setState(() {
+          _selectionMode = false;
+          _selectedSdNos.clear();
+          _mergeSelectTabIndex = null;
+        });
+      }
+      _reload();
+      return;
+    }
+    picked.sort((a, b) => a.sdNo.compareTo(b.sdNo));
+    final locked = <String>[];
+    try {
+      for (final m in picked) {
+        if (m.isAvailableToPick) {
+          await _service.lock(m.sdNo);
+          locked.add(m.sdNo);
+        }
+      }
+    } catch (e) {
+      for (final sd in locked.reversed) {
+        try {
+          await _service.unlock(sd);
+        } catch (_) {}
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('領單失敗: $e')),
+        );
+      }
+      _reload();
+      return;
+    }
+    if (!mounted) return;
+    await addPickingMergeGroup(picked.map((m) => m.sdNo).toList());
+    if (!mounted) return;
+    setState(() {
+      _selectionMode = false;
+      _selectedSdNos.clear();
+      _mergeSelectTabIndex = null;
+    });
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PickListItemsScreen(
+          main: picked.first,
+          mergeMains: picked,
+          employeeId: widget.employeeId ?? '',
+          service: _service,
+          readOnly: false,
+          onFinishedToQcAndPop: () {
+            _tabController.animateTo(_tabDone);
+            _reload();
+          },
+        ),
+      ),
+    );
+    if (mounted) _reload();
+  }
+
+  void _load() {
+    final fut = _service.fetchPickListMain();
+    setState(() {
+      _futureMain = fut;
       _futureSummary = _loadSummary();
       _futureCannotPick = _service.fetchCannotPickToday(all: true);
       _canFinishToQcBySdNo.clear();
     });
-    _futureMain
-        ?.then((items) {
-          _refreshFinishEligibility(items);
+    fut
+        .then((items) {
+          if (!mounted) return;
           widget.onCountChanged?.call(
             items.where((m) => m.isUnfinishedForBadge).length,
           );
         })
         .catchError((_) {});
+    _afterMainLoaded(fut);
+  }
+
+  Future<void> _afterMainLoaded(Future<List<PickListMain>> fut) async {
+    final items = await fut;
+    if (!mounted) return;
+    final g = await loadPickingMergeGroups();
+    final cg = await loadCompletedMergeGroups();
+    if (!mounted) return;
+    setState(() {
+      _cachedMergeGroups = g;
+      _cachedCompletedMergeGroups = cg;
+    });
+    await _refreshFinishEligibilityWithGroups(items);
   }
 
   static String _progressKey(String sdNo) =>
@@ -74,17 +214,75 @@ class _PickListScreenState extends State<PickListScreen>
   static String _itemKeyForItem(PickListItem item) =>
       '${item.id}-${item.seqNum ?? ''}-${item.productId}';
 
-  Future<void> _refreshFinishEligibility(List<PickListMain> mains) async {
-    final targets = mains
-        .where((m) => m.normalizedLockStatus == 'locked_by_me' && !m.isPickedDoneStage)
+  Future<void> _refreshFinishEligibilityWithGroups(List<PickListMain> mains) async {
+    final picking = mains
+        .where(
+          (m) =>
+              m.normalizedLockStatus == 'locked_by_me' && !m.isPickedDoneStage,
+        )
         .toList();
-    if (targets.isEmpty) return;
-    for (final m in targets) {
-      final canFinish = await _canFinishToQcForMain(m);
-      if (!mounted) return;
-      setState(() {
-        _canFinishToQcBySdNo[m.sdNo] = canFinish;
-      });
+    final rows = collapsePickingRowsByMergeGroups(picking, _cachedMergeGroups);
+    final next = <String, bool>{};
+    for (final row in rows) {
+      if (row.length >= 2) {
+        final can = await _canFinishToQcForMergeRow(row);
+        if (!mounted) return;
+        next[mergeFinishEligibilityKey(row.map((m) => m.sdNo))] = can;
+      } else {
+        final m = row.single;
+        final can = await _canFinishToQcForMain(m);
+        if (!mounted) return;
+        next[m.sdNo] = can;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _canFinishToQcBySdNo
+        ..clear()
+        ..addAll(next);
+    });
+  }
+
+  Future<bool> _canFinishToQcForMergeRow(List<PickListMain> mains) async {
+    try {
+      final emp =
+          widget.employeeId?.isNotEmpty == true ? widget.employeeId : null;
+      final bundles = <({PickListMain main, List<PickListItem> items})>[];
+      for (final m in mains) {
+        final items = await _service.fetchItemsBySdNo(
+          employeeId: emp,
+          sdNo: m.sdNo,
+          main: m,
+        );
+        bundles.add((main: m, items: items));
+      }
+      final plan = buildMergePlan(bundles);
+      final merged = plan.mergedItems;
+      if (merged.isEmpty) return false;
+      final validKeys =
+          merged.map((e) => itemKeyForPick(e, merge: true)).toSet();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(
+        mergeProgressKey(mains.map((m) => m.sdNo)),
+      );
+      if (raw == null) return false;
+      final map = jsonDecode(raw) as Map<String, dynamic>?;
+      if (map == null) return false;
+      final completed =
+          (map['completed'] as List<dynamic>?)
+              ?.whereType<String>()
+              .where(validKeys.contains)
+              .toSet() ??
+          <String>{};
+      final notFound =
+          (map['notFound'] as List<dynamic>?)
+              ?.whereType<String>()
+              .where(validKeys.contains)
+              .toSet() ??
+          <String>{};
+      return completed.length + notFound.length == validKeys.length;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -141,6 +339,32 @@ class _PickListScreenState extends State<PickListScreen>
     return result == true;
   }
 
+  Future<bool> _confirmFinishToQcMerge(List<PickListMain> mains) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認完成至待驗收'),
+        content: SingleChildScrollView(
+          child: Text(
+            '確定將以下 ${mains.length} 張合併揀貨單標記為完成至待驗收？\n\n'
+            '${mains.map((m) => m.sdNo).join('\n')}',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   Future<_SummaryData> _loadSummary() async {
     try {
       final summary = await _service.getSummary();
@@ -172,6 +396,52 @@ class _PickListScreenState extends State<PickListScreen>
             Tab(text: '找不到'),
           ],
         ),
+        if (_tabController.index < 4)
+          Material(
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest.withAlpha(140),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        if (_selectionMode) {
+                          _selectionMode = false;
+                          _selectedSdNos.clear();
+                          _mergeSelectTabIndex = null;
+                        } else {
+                          _selectionMode = true;
+                          _mergeSelectTabIndex = _tabController.index;
+                          _selectedSdNos.clear();
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      _selectionMode ? Icons.close : Icons.library_add_check_outlined,
+                    ),
+                    label: Text(_selectionMode ? '取消多選' : '多選合併'),
+                  ),
+                  if (_selectionMode) ...[
+                    Expanded(
+                      child: Text(
+                        '已選 ${_selectedSdNos.length}（至少 2 張）',
+                        style: Theme.of(context).textTheme.bodySmall,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    FilledButton(
+                      onPressed:
+                          _selectedSdNos.length >= 2 ? _openMergedItems : null,
+                      child: const Text('合併撿貨'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         Expanded(
           child: FutureBuilder<List<PickListMain>>(
             future: _futureMain,
@@ -214,8 +484,14 @@ class _PickListScreenState extends State<PickListScreen>
                         myToday: d.myToday,
                         availableCount: grouped['未撿貨(A)']!.length +
                             grouped['未撿貨(B)']!.length,
-                        pickingCount: grouped['撿貨中']!.length,
-                        completedCount: grouped['撿貨完']!.length,
+                        pickingCount: collapsePickingRowsByMergeGroups(
+                          grouped['撿貨中']!,
+                          _cachedMergeGroups,
+                        ).length,
+                        completedCount: collapseDoneTabRowsByMergeGroups(
+                          grouped['撿貨完']!,
+                          _cachedCompletedMergeGroups,
+                        ).length,
                         onRefresh: _reload,
                       );
                     },
@@ -227,48 +503,78 @@ class _PickListScreenState extends State<PickListScreen>
                             controller: _tabController,
                             children: [
                               _MainList(
-                                mains: grouped['未撿貨(A)']!,
+                                rows: grouped['未撿貨(A)']!
+                                    .map((m) => <PickListMain>[m])
+                                    .toList(),
                                 emptyText: '目前沒有未撿貨(A)的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
                                 canFinishToQcBySdNo: _canFinishToQcBySdNo,
-                                onTap: _openItems,
-                                onFinishToQc: _onFinishToQc,
-                                onRelease: _onRelease,
+                                onTapRow: _openItemsRow,
+                                onFinishToQcRow: _onFinishToQcRow,
+                                onReleaseRow: _onReleaseRow,
                                 onRefresh: _reload,
+                                selectionMode: _selectionMode &&
+                                    _mergeSelectTabIndex == 0,
+                                selectedSdNos: _selectedSdNos,
+                                mergeSelectable: _mergeSelectable,
+                                onToggleSelect: _toggleSelect,
                               ),
                               _MainList(
-                                mains: grouped['未撿貨(B)']!,
+                                rows: grouped['未撿貨(B)']!
+                                    .map((m) => <PickListMain>[m])
+                                    .toList(),
                                 emptyText: '目前沒有未撿貨(B)的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
                                 canFinishToQcBySdNo: _canFinishToQcBySdNo,
-                                onTap: _openItems,
-                                onFinishToQc: _onFinishToQc,
-                                onRelease: _onRelease,
+                                onTapRow: _openItemsRow,
+                                onFinishToQcRow: _onFinishToQcRow,
+                                onReleaseRow: _onReleaseRow,
                                 onRefresh: _reload,
+                                selectionMode: _selectionMode &&
+                                    _mergeSelectTabIndex == 1,
+                                selectedSdNos: _selectedSdNos,
+                                mergeSelectable: _mergeSelectable,
+                                onToggleSelect: _toggleSelect,
                               ),
                               _MainList(
-                                mains: grouped['撿貨中']!,
+                                rows: collapsePickingRowsByMergeGroups(
+                                  grouped['撿貨中']!,
+                                  _cachedMergeGroups,
+                                ),
                                 emptyText: '目前沒有撿貨中的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
                                 canFinishToQcBySdNo: _canFinishToQcBySdNo,
-                                onTap: _openItems,
-                                onFinishToQc: _onFinishToQc,
-                                onRelease: _onRelease,
+                                onTapRow: _openItemsRow,
+                                onFinishToQcRow: _onFinishToQcRow,
+                                onReleaseRow: _onReleaseRow,
                                 onRefresh: _reload,
+                                selectionMode: _selectionMode &&
+                                    _mergeSelectTabIndex == 2,
+                                selectedSdNos: _selectedSdNos,
+                                mergeSelectable: _mergeSelectable,
+                                onToggleSelect: _toggleSelect,
                               ),
                               _MainList(
-                                mains: grouped['撿貨完']!,
+                                rows: collapseDoneTabRowsByMergeGroups(
+                                  grouped['撿貨完']!,
+                                  _cachedCompletedMergeGroups,
+                                ),
                                 emptyText: '目前沒有撿貨完成的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
                                 canFinishToQcBySdNo: _canFinishToQcBySdNo,
-                                onTap: _openItems,
-                                onFinishToQc: _onFinishToQc,
-                                onRelease: _onRelease,
+                                onTapRow: _openItemsRow,
+                                onFinishToQcRow: _onFinishToQcRow,
+                                onReleaseRow: _onReleaseRow,
                                 onRefresh: _reload,
+                                selectionMode: _selectionMode &&
+                                    _mergeSelectTabIndex == 3,
+                                selectedSdNos: _selectedSdNos,
+                                mergeSelectable: _mergeSelectable,
+                                onToggleSelect: _toggleSelect,
                               ),
                               _CannotPickTodayTab(
                                 future: _futureCannotPick,
@@ -323,7 +629,54 @@ class _PickListScreenState extends State<PickListScreen>
     return '未撿貨(A)';
   }
 
-  Future<void> _openItems(PickListMain main) async {
+  Future<void> _openItemsRow(List<PickListMain> row) async {
+    if (row.isEmpty) return;
+    if (row.length >= 2) {
+      final mergeReadOnly =
+          row.every((m) => m.isPickedDoneStage || m.isReadyToSortStage);
+      if (mergeReadOnly) {
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PickListItemsScreen(
+              main: row.first,
+              mergeMains: row,
+              employeeId: widget.employeeId ?? '',
+              service: _service,
+              readOnly: true,
+              onFinishedToQcAndPop: () {
+                _tabController.animateTo(_tabDone);
+                _reload();
+              },
+            ),
+          ),
+        );
+        if (mounted) _reload();
+        return;
+      }
+      if (row.any((m) => m.normalizedLockStatus == 'locked_by_other')) {
+        return;
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PickListItemsScreen(
+            main: row.first,
+            mergeMains: row,
+            employeeId: widget.employeeId ?? '',
+            service: _service,
+            readOnly: false,
+            onFinishedToQcAndPop: () {
+              _tabController.animateTo(_tabDone);
+              _reload();
+            },
+          ),
+        ),
+      );
+      if (mounted) _reload();
+      return;
+    }
+    final main = row.first;
     final readOnly = main.isPickedDoneStage || main.isReadyToSortStage;
     if (!readOnly && main.normalizedLockStatus == 'locked_by_other') return;
     if (!readOnly && main.isAvailableToPick) {
@@ -341,7 +694,7 @@ class _PickListScreenState extends State<PickListScreen>
     }
     Navigator.of(context)
         .push(
-          MaterialPageRoute(
+          MaterialPageRoute<void>(
             builder: (_) => PickListItemsScreen(
               main: main,
               employeeId: widget.employeeId ?? '',
@@ -357,8 +710,43 @@ class _PickListScreenState extends State<PickListScreen>
         .then((_) => _reload());
   }
 
-  Future<void> _onFinishToQc(PickListMain main) async {
+  Future<void> _onFinishToQcRow(List<PickListMain> row) async {
+    if (row.isEmpty) return;
+    if (row.length >= 2) {
+      try {
+        final canFinish = await _canFinishToQcForMergeRow(row);
+        if (!canFinish) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('請先將所有項目標記為完成或找不到')),
+          );
+          return;
+        }
+        if (!mounted) return;
+        final confirmed = await _confirmFinishToQcMerge(row);
+        if (!confirmed) return;
+        for (final m in row) {
+          await _service.finishToQc(m.sdNo);
+        }
+        await addCompletedMergeGroup(row.map((m) => m.sdNo).toList());
+        await removePickingMergeGroup(row.map((m) => m.sdNo).toList());
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已完成至待驗收')));
+        _tabController.animateTo(_tabDone);
+        _reload();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('完成失敗: $e')));
+        _reload();
+      }
+      return;
+    }
     try {
+      final main = row.first;
       final canFinish = await _canFinishToQcForMain(main);
       if (!canFinish) {
         if (!mounted) return;
@@ -386,9 +774,54 @@ class _PickListScreenState extends State<PickListScreen>
     }
   }
 
-  Future<void> _onRelease(PickListMain main) async {
+  Future<void> _onReleaseRow(List<PickListMain> row) async {
+    if (row.isEmpty) return;
+    if (row.length >= 2) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('釋放合併揀貨'),
+          content: SingleChildScrollView(
+            child: Text(
+              '確定釋放以下 ${row.length} 張？\n\n'
+              '${row.map((m) => m.sdNo).join('\n')}',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('確認'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      try {
+        for (final m in row) {
+          await _service.unlock(m.sdNo);
+        }
+        await removePickingMergeGroup(row.map((m) => m.sdNo).toList());
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('已釋放揀貨單')));
+        _reload();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('釋放失敗: $e')));
+        _reload();
+      }
+      return;
+    }
     try {
-      await _service.unlock(main.sdNo);
+      await _service.unlock(row.first.sdNo);
+      await removePickingMergeGroupsTouchingSdNo(row.first.sdNo);
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -620,7 +1053,7 @@ class _CannotPickOrderDetailScreen extends StatelessWidget {
                               : Image.network(
                                   imageUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
+                                  errorBuilder: (context, error, stackTrace) => Container(
                                     color: Theme.of(context)
                                         .colorScheme
                                         .surfaceContainerHighest,
@@ -773,26 +1206,35 @@ class _TodaySummaryCard extends StatelessWidget {
 
 class _MainList extends StatelessWidget {
   const _MainList({
-    required this.mains,
+    required this.rows,
     required this.emptyText,
     required this.service,
     required this.showDateOnCards,
     required this.canFinishToQcBySdNo,
-    required this.onTap,
-    required this.onFinishToQc,
-    required this.onRelease,
+    required this.onTapRow,
+    required this.onFinishToQcRow,
+    required this.onReleaseRow,
     required this.onRefresh,
+    this.selectionMode = false,
+    required this.selectedSdNos,
+    required this.mergeSelectable,
+    required this.onToggleSelect,
   });
 
-  final List<PickListMain> mains;
+  /// 每列一張單，或合併多張（僅 [撿貨中] 會出現多張一列）
+  final List<List<PickListMain>> rows;
   final String emptyText;
   final PickListService service;
   final bool showDateOnCards;
   final Map<String, bool> canFinishToQcBySdNo;
-  final Future<void> Function(PickListMain) onTap;
-  final Future<void> Function(PickListMain) onFinishToQc;
-  final Future<void> Function(PickListMain) onRelease;
+  final Future<void> Function(List<PickListMain> row) onTapRow;
+  final Future<void> Function(List<PickListMain> row) onFinishToQcRow;
+  final Future<void> Function(List<PickListMain> row) onReleaseRow;
   final Future<void> Function() onRefresh;
+  final bool selectionMode;
+  final Set<String> selectedSdNos;
+  final bool Function(PickListMain) mergeSelectable;
+  final void Function(PickListMain) onToggleSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -801,10 +1243,10 @@ class _MainList extends StatelessWidget {
       child: ListView.separated(
         padding: const EdgeInsets.all(12),
         physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: mains.isEmpty ? 1 : mains.length,
+        itemCount: rows.isEmpty ? 1 : rows.length,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
-          if (mains.isEmpty) {
+          if (rows.isEmpty) {
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
@@ -815,14 +1257,23 @@ class _MainList extends StatelessWidget {
               ),
             );
           }
-          final main = mains[index];
+          final row = rows[index];
+          final main = row.first;
+          final finishKey = row.length >= 2
+              ? mergeFinishEligibilityKey(row.map((m) => m.sdNo))
+              : main.sdNo;
+          final canFinish = canFinishToQcBySdNo[finishKey] ?? false;
           return _PickMainCard(
-            main: main,
+            row: row,
             showDate: showDateOnCards,
-            canFinishToQc: canFinishToQcBySdNo[main.sdNo] ?? false,
-            onTap: () => onTap(main),
-            onFinishToQc: () => onFinishToQc(main),
-            onRelease: () => onRelease(main),
+            canFinishToQc: canFinish,
+            onTap: () => onTapRow(row),
+            onFinishToQc: () => onFinishToQcRow(row),
+            onRelease: () => onReleaseRow(row),
+            selectionMode: selectionMode,
+            selected: row.length == 1 && selectedSdNos.contains(main.sdNo),
+            mergeSelectable: row.length == 1 && mergeSelectable(main),
+            onToggleSelect: () => onToggleSelect(main),
           );
         },
       ),
@@ -832,20 +1283,32 @@ class _MainList extends StatelessWidget {
 
 class _PickMainCard extends StatelessWidget {
   const _PickMainCard({
-    required this.main,
+    required this.row,
     this.showDate = false,
     this.canFinishToQc = false,
     this.onTap,
     this.onFinishToQc,
     this.onRelease,
+    this.selectionMode = false,
+    this.selected = false,
+    this.mergeSelectable = false,
+    this.onToggleSelect,
   });
 
-  final PickListMain main;
+  /// 一列一張，或合併多張
+  final List<PickListMain> row;
   final bool showDate;
   final bool canFinishToQc;
   final VoidCallback? onTap;
   final VoidCallback? onFinishToQc;
   final VoidCallback? onRelease;
+  final bool selectionMode;
+  final bool selected;
+  final bool mergeSelectable;
+  final VoidCallback? onToggleSelect;
+
+  PickListMain get main => row.first;
+
   String _dateText(DateTime dt) {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
@@ -853,106 +1316,236 @@ class _PickMainCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMerged = row.length >= 2;
     final status = main.lockStatus;
-    final isAvailable = main.isAvailableToPick;
-    final isLockedByMe = main.normalizedLockStatus == 'locked_by_me';
-    final isLockedByOther = main.normalizedLockStatus == 'locked_by_other';
-    final isDone = main.isPickedDoneStage;
-    final isReadOnlyFlow = main.isPickedDoneStage || main.isReadyToSortStage;
-    final canTap = isReadOnlyFlow || (isAvailable || isLockedByMe);
+    final isAvailable = !isMerged && main.isAvailableToPick;
+    final isLockedByMe = isMerged
+        ? row.every((m) => m.normalizedLockStatus == 'locked_by_me')
+        : main.normalizedLockStatus == 'locked_by_me';
+    final isLockedByOther = !isMerged && main.normalizedLockStatus == 'locked_by_other';
+    final isDone = !isMerged && main.isPickedDoneStage;
+    final isReadOnlyFlow =
+        !isMerged && (main.isPickedDoneStage || main.isReadyToSortStage);
+    final mergedReadOnlyBrowse = isMerged &&
+        row.every((m) => m.isPickedDoneStage || m.isReadyToSortStage);
+    final canTap = isMerged
+        ? (isLockedByMe || mergedReadOnlyBrowse)
+        : (isReadOnlyFlow || (isAvailable || isLockedByMe));
+
+    final sdNoTitle = isMerged
+        ? '合併揀貨（${row.length} 張）'
+        : '揀貨單號：${main.sdNo}';
+    final mergedOrdered =
+        isMerged ? mergeCardMainsOrdered(row) : const <PickListMain>[];
+
+    num? ttlSum;
+    if (isMerged) {
+      num s = 0;
+      var hasAny = false;
+      for (final m in row) {
+        final q = m.ttlMustQty;
+        if (q != null) {
+          s += q;
+          hasAny = true;
+        }
+      }
+      ttlSum = hasAny ? s : null;
+    }
+
+    final primaryBar = SizedBox(
+      width: 12,
+      height: isMerged ? null : 120,
+      child: Container(color: Theme.of(context).colorScheme.primary),
+    );
+
+    final innerRow = Row(
+      crossAxisAlignment:
+          isMerged ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
+      children: [
+        if (selectionMode) ...[
+          Checkbox(
+            value: selected,
+            onChanged: mergeSelectable
+                ? (_) => onToggleSelect?.call()
+                : null,
+          ),
+          const SizedBox(width: 4),
+        ],
+        primaryBar,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      sdNoTitle,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  if (status != null && status.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isLockedByOther
+                            ? Theme.of(
+                                context,
+                              ).colorScheme.errorContainer.withAlpha(153)
+                            : Theme.of(context)
+                                  .colorScheme
+                                  .primaryContainer
+                                  .withAlpha(204),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        main.lockStatusDisplay,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                ],
+              ),
+              if (isMerged) ...[
+                const SizedBox(height: 6),
+                Text(
+                  '揀貨單號：',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                for (var i = 0; i < mergedOrdered.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text.rich(
+                      TextSpan(
+                        style: Theme.of(context).textTheme.bodySmall,
+                        children: [
+                          TextSpan(text: mergedOrdered[i].sdNo),
+                          TextSpan(
+                            text: '（${chineseOrdinal(i + 1)}）',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  '流程：',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                for (var i = 0; i < mergedOrdered.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text.rich(
+                      TextSpan(
+                        style: Theme.of(context).textTheme.bodySmall,
+                        children: [
+                          TextSpan(
+                            text: '（${chineseOrdinal(i + 1)}）',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          TextSpan(
+                            text: ': ${mergedOrdered[i].flowTabLabel} '
+                                '(${mergedOrdered[i].flowAreaDisplayText ?? '—'})',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  '通路：',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                for (var i = 0; i < mergedOrdered.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text.rich(
+                      TextSpan(
+                        style: Theme.of(context).textTheme.bodySmall,
+                        children: [
+                          TextSpan(
+                            text: '（${chineseOrdinal(i + 1)}）',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          TextSpan(
+                            text: ': '
+                                '${mergedOrdered[i].channelDisplayText ?? '-'} / '
+                                '${mergedOrdered[i].mallDisplayText ?? '商城（-）'}',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+              if (!isMerged) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '流程：${main.flowTabLabel}${main.flowAreaDisplayText != null ? ' (${main.flowAreaDisplayText})' : ''}',
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '通路：${main.channelDisplayText ?? '-'} / ${main.mallDisplayText ?? '商城（-）'}',
+                ),
+              ],
+              const SizedBox(height: 4),
+              Text(
+                isMerged
+                    ? '合計件數：${ttlSum ?? '-'}'
+                    : '件數：${main.ttlMustQty ?? '-'}',
+              ),
+              if (showDate && main.crtTime != null) ...[
+                const SizedBox(height: 4),
+                Text('建立時間：${_dateText(main.crtTime!)}'),
+              ],
+              if (!isDone && isLockedByMe) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (onFinishToQc != null)
+                      TextButton.icon(
+                        onPressed: canFinishToQc ? onFinishToQc : null,
+                        icon: const Icon(Icons.lock_open, size: 18),
+                        label: const Text('完成至待驗收'),
+                      ),
+                    if (onRelease != null)
+                      TextButton.icon(
+                        onPressed: onRelease,
+                        icon: const Icon(Icons.lock_outline, size: 18),
+                        label: const Text('釋放'),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
 
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: canTap ? onTap : null,
+        onTap: selectionMode
+            ? (mergeSelectable ? onToggleSelect : null)
+            : (canTap ? onTap : null),
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 12,
-                height: 120,
-                child: Container(color: Theme.of(context).colorScheme.primary),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '揀貨單號：${main.sdNo}',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        if (status != null && status.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isLockedByOther
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.errorContainer.withAlpha(153)
-                                  : Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer
-                                        .withAlpha(204),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              main.lockStatusDisplay,
-                              style: Theme.of(context).textTheme.labelSmall,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '流程：${main.flowTabLabel}${main.flowAreaDisplayText != null ? ' (${main.flowAreaDisplayText})' : ''}',
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '通路：${main.channelDisplayText ?? '-'} / ${main.mallDisplayText ?? '商城（-）'}',
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '件數：${main.ttlMustQty ?? '-'}',
-                    ),
-                    if (showDate && main.crtTime != null) ...[
-                      const SizedBox(height: 4),
-                      Text('建立時間：${_dateText(main.crtTime!)}'),
-                    ],
-                    if (!isDone && isLockedByMe) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          if (onFinishToQc != null)
-                            TextButton.icon(
-                              onPressed: canFinishToQc ? onFinishToQc : null,
-                              icon: const Icon(Icons.lock_open, size: 18),
-                              label: const Text('完成至待驗收'),
-                            ),
-                          if (onRelease != null)
-                            TextButton.icon(
-                              onPressed: onRelease,
-                              icon: const Icon(Icons.lock_outline, size: 18),
-                              label: const Text('釋放'),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
+          child: isMerged ? IntrinsicHeight(child: innerRow) : innerRow,
         ),
       ),
     );
@@ -1101,6 +1694,7 @@ class _PickCard extends StatelessWidget {
     this.onShelfRatingChanged,
     this.allShelfLabels,
     this.currentShelfIndex,
+    this.sourceOrderLabel,
   });
 
   final PickListItem item;
@@ -1112,6 +1706,8 @@ class _PickCard extends StatelessWidget {
   final void Function(int)? onShelfRatingChanged;
   final List<String>? allShelfLabels;
   final int? currentShelfIndex;
+  /// 合併檢視：顯示來源單號與中文後綴，例如 FC…（一）
+  final String? sourceOrderLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1341,6 +1937,42 @@ class _PickCard extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (sourceOrderLabel != null &&
+                            sourceOrderLabel!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Builder(
+                            builder: (context) {
+                              final labelStyle = Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.tertiary,
+                                    fontWeight: FontWeight.w600,
+                                  );
+                              final (pre, suf) = splitMergeOrdinalSuffix(
+                                sourceOrderLabel!,
+                              );
+                              return Text.rich(
+                                TextSpan(
+                                  style: labelStyle,
+                                  children: [
+                                    const TextSpan(text: '揀貨單：'),
+                                    TextSpan(text: pre),
+                                    if (suf != null)
+                                      TextSpan(
+                                        text: suf,
+                                        style: const TextStyle(
+                                          color: Colors.red,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                         if (productLabel != null) ...[
                           const SizedBox(height: 4),
                           Text(
@@ -1427,6 +2059,7 @@ class PickListItemsScreen extends StatefulWidget {
   const PickListItemsScreen({
     super.key,
     required this.main,
+    this.mergeMains,
     required this.employeeId,
     this.service,
     this.readOnly = false,
@@ -1434,6 +2067,8 @@ class PickListItemsScreen extends StatefulWidget {
   });
 
   final PickListMain main;
+  /// 長度 ≥2 時為合併檢視（品項依櫃號合併排序，並顯示中文後綴）。
+  final List<PickListMain>? mergeMains;
   final String employeeId;
   final PickListService? service;
   final bool readOnly;
@@ -1457,6 +2092,12 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   String? _error;
   late final PageController _pageController;
   bool get _isReadOnly => widget.readOnly;
+  bool get _isMerge =>
+      widget.mergeMains != null && widget.mergeMains!.length >= 2;
+  /// 合併模式：揀貨單號 → `（一）`
+  Map<String, String> _mergeSdNoToSuffix = {};
+  /// 合併 AppBar：品項數多到少之標題列
+  List<String> _mergeOrderedTitles = [];
   bool get _canFinishToQc {
     if (_isReadOnly) return false;
     if (_loading || _items.isEmpty) return false;
@@ -1477,8 +2118,15 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     super.dispose();
   }
 
-  static String _progressKey(String sdNo) =>
+  static String _progressKeySingle(String sdNo) =>
       'pick_list_progress_${sdNo.replaceAll(RegExp(r'[^\w\-]'), '_')}';
+
+  String _progressStorageKey() {
+    if (_isMerge) {
+      return mergeProgressKey(widget.mergeMains!.map((m) => m.sdNo));
+    }
+    return _progressKeySingle(widget.main.sdNo);
+  }
 
   Future<void> _load() async {
     setState(() {
@@ -1486,19 +2134,50 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       _error = null;
     });
     try {
-      final data = await _service.fetchItemsBySdNo(
-        employeeId: widget.employeeId.isNotEmpty ? widget.employeeId : null,
-        sdNo: widget.main.sdNo,
-        main: widget.main,
-      );
+      final emp =
+          widget.employeeId.isNotEmpty ? widget.employeeId : null;
+      late final List<PickListItem> data;
+      late final Map<String, String> mergeSuffixes;
+      late final List<String> mergeOrderedTitles;
+      if (_isMerge) {
+        final mains = widget.mergeMains!;
+        final lists = await Future.wait(
+          mains.map(
+            (m) => _service.fetchItemsBySdNo(
+              employeeId: emp,
+              sdNo: m.sdNo,
+              main: m,
+            ),
+          ),
+        );
+        final bundles = [
+          for (var i = 0; i < mains.length; i++)
+            (main: mains[i], items: lists[i]),
+        ];
+        final plan = buildMergePlan(bundles);
+        data = plan.mergedItems;
+        mergeSuffixes = plan.sdNoToSuffix;
+        mergeOrderedTitles = plan.orderedTitlesForAppBar;
+      } else {
+        mergeSuffixes = {};
+        mergeOrderedTitles = [];
+        data = await _service.fetchItemsBySdNo(
+          employeeId: emp,
+          sdNo: widget.main.sdNo,
+          main: widget.main,
+        );
+      }
       if (!mounted) return;
-      final itemKeys = data.map((e) => _itemKeyForItem(e)).toSet();
+      final itemKeys =
+          data.map((e) => itemKeyForPick(e, merge: _isMerge)).toSet();
       final (completed, notFound) = _isReadOnly
           ? (<String>{}, <String>{})
-          : await _restoreProgress(widget.main.sdNo, itemKeys);
+          : await _restoreProgress(itemKeys);
       if (!mounted) return;
       setState(() {
         _items = data;
+        _mergeSdNoToSuffix = mergeSuffixes;
+        _mergeOrderedTitles = mergeOrderedTitles;
         _currentVisibleIndex = 0;
         _loading = false;
         _completed = completed;
@@ -1509,20 +2188,18 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       setState(() {
         _error = e.toString();
         _loading = false;
+        _mergeOrderedTitles = [];
+        _mergeSdNoToSuffix = {};
       });
     }
   }
 
-  static String _itemKeyForItem(PickListItem item) =>
-      '${item.id}-${item.seqNum ?? ''}-${item.productId}';
-
   Future<(Set<String>, Set<String>)> _restoreProgress(
-    String sdNo,
     Set<String> validKeys,
   ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final json = prefs.getString(_progressKey(sdNo));
+      final json = prefs.getString(_progressStorageKey());
       if (json == null) return (<String>{}, <String>{});
       final map = jsonDecode(json) as Map<String, dynamic>?;
       if (map == null) return (<String>{}, <String>{});
@@ -1548,7 +2225,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-        _progressKey(widget.main.sdNo),
+        _progressStorageKey(),
         jsonEncode({
           'completed': _completed.toList(),
           'notFound': _notFound.toList(),
@@ -1560,24 +2237,20 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   Future<void> _clearProgress() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_progressKey(widget.main.sdNo));
+      await prefs.remove(_progressStorageKey());
     } catch (_) {}
   }
 
-  Future<void> _finishAndLeave() async {
-    if (_isReadOnly) return;
-    if (!_canFinishToQc) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('請先將所有項目標記為完成或找不到')));
-      return;
-    }
+  Future<void> _unlockAllMerged() async {
+    if (!_isMerge || _isReadOnly) return;
+    final mains = widget.mergeMains!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('確認完成至待驗收'),
-        content: Text('確定將揀貨單 ${widget.main.sdNo} 標記為完成至待驗收？'),
+        title: const Text('釋放全部'),
+        content: Text(
+          '確定釋放以下 ${mains.length} 張揀貨單？\n${mains.map((m) => m.sdNo).join('\n')}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -1592,9 +2265,73 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     );
     if (confirmed != true) return;
     try {
-      await _service.finishToQc(widget.main.sdNo);
+      for (final m in mains) {
+        await _service.unlock(m.sdNo);
+      }
       if (!mounted) return;
       await _clearProgress();
+      if (!mounted) return;
+      await removePickingMergeGroup(mains.map((m) => m.sdNo).toList());
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('釋放失敗: $e')));
+    }
+  }
+
+  Future<void> _finishAndLeave() async {
+    if (_isReadOnly) return;
+    if (!_canFinishToQc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請先將所有項目標記為完成或找不到')));
+      return;
+    }
+    final mains = _isMerge ? widget.mergeMains! : <PickListMain>[widget.main];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認完成至待驗收'),
+        content: SingleChildScrollView(
+          child: Text(
+            mains.length > 1
+                ? '將對以下 ${mains.length} 張揀貨單標記為完成至待驗收：\n\n'
+                    '${mains.map((m) => m.sdNo).join('\n')}'
+                : '確定將揀貨單 ${widget.main.sdNo} 標記為完成至待驗收？',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      for (final m in mains) {
+        await _service.finishToQc(m.sdNo);
+      }
+      if (!mounted) return;
+      await _clearProgress();
+      if (!mounted) return;
+      if (_isMerge) {
+        await addCompletedMergeGroup(
+          widget.mergeMains!.map((m) => m.sdNo).toList(),
+        );
+        await removePickingMergeGroup(
+          widget.mergeMains!.map((m) => m.sdNo).toList(),
+        );
+      }
       if (!mounted) return;
       widget.onFinishedToQcAndPop?.call();
       Navigator.of(context).pop();
@@ -1610,13 +2347,35 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          '揀貨單 ${widget.main.sdNo}',
-          style: Theme.of(context).textTheme.titleSmall,
-          maxLines: 2,
-          overflow: TextOverflow.visible,
-        ),
+        title: _isMerge && _mergeOrderedTitles.isNotEmpty
+            ? Text.rich(
+                TextSpan(
+                  style: Theme.of(context).textTheme.titleSmall,
+                  children: [
+                    for (var i = 0; i < _mergeOrderedTitles.length; i++) ...[
+                      if (i > 0) const TextSpan(text: ' · '),
+                      _textSpanWithRedMergeOrdinal(
+                        _mergeOrderedTitles[i],
+                        Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ],
+                  ],
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              )
+            : Text(
+                '揀貨單 ${widget.main.sdNo}',
+                style: Theme.of(context).textTheme.titleSmall,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
         actions: [
+          if (!_isReadOnly && _isMerge)
+            TextButton(
+              onPressed: _unlockAllMerged,
+              child: const Text('釋放全部'),
+            ),
           if (!_isReadOnly)
             TextButton.icon(
               onPressed: _canFinishToQc ? _finishAndLeave : null,
@@ -1727,6 +2486,11 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                             : null,
                         allShelfLabels: shelfLabels,
                         currentShelfIndex: index,
+                        sourceOrderLabel: _isMerge &&
+                                pageItem.sdNo != null &&
+                                pageItem.sdNo!.isNotEmpty
+                            ? '${pageItem.sdNo}${_mergeSdNoToSuffix[pageItem.sdNo] ?? ''}'
+                            : null,
                       ),
                     ),
                   );
@@ -1906,7 +2670,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     setState(() => _shelfRatings[key] = rank);
     try {
       await _service.submitShelfFeedback(
-        sdNo: widget.main.sdNo,
+        sdNo: item.sdNo ?? widget.main.sdNo,
         prodId: item.productId,
         rkId: item.rkId ?? item.id,
         rank: rank,
@@ -1934,7 +2698,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     if (reason == null || !mounted) return;
     try {
       await _service.reportCannotPick(
-        sdNo: widget.main.sdNo,
+        sdNo: item.sdNo ?? widget.main.sdNo,
         prodId: item.productId,
         rkId: item.rkId ?? item.id,
         reason: reason.reason,
@@ -2024,7 +2788,8 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     return result;
   }
 
-  String _itemKey(PickListItem item) => _itemKeyForItem(item);
+  String _itemKey(PickListItem item) =>
+      itemKeyForPick(item, merge: _isMerge);
 
   List<int> _filteredIndexes() {
     final result = <int>[];
