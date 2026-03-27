@@ -76,7 +76,9 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _refreshPickListCount() async {
     try {
-      final mains = await widget.pickListService.fetchPickListMain();
+      final mains = await widget.pickListService.fetchPickListMain(
+        priorOpenDays: PickListService.kDefaultPriorOpenDays,
+      );
       if (!mounted) return;
       final unfinished = mains.where((m) => m.isUnfinishedForBadge).length;
       setState(() => _pickListCount = unfinished);

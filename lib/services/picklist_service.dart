@@ -66,10 +66,17 @@ class PickListService {
     throw Exception('登入失敗 ${resp.statusCode}: ${resp.body}');
   }
 
-  /// 今日總量（免 token）：GET /api/v1/picking-lists/main/summary
-  Future<MainSummary> getSummary() async {
+  /// 與後端 `prior_open_days` 對齊：1 表示納入前一日起尚未結案（未撿／撿貨中），0 僅今日開放單。
+  static const int kDefaultPriorOpenDays = 1;
+
+  /// 揀貨主檔摘要（免 token）：GET /api/v1/picking-lists/main/summary
+  Future<MainSummary> getSummary({int priorOpenDays = kDefaultPriorOpenDays}) async {
     final uri = Uri.parse(
       '${_config.uploadBase}/api/v1/picking-lists/main/summary',
+    ).replace(
+      queryParameters: {
+        'prior_open_days': '$priorOpenDays',
+      },
     );
     final resp = await _client.get(uri);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
@@ -309,14 +316,17 @@ class PickListService {
   /// 列表：GET /api/v1/picking-lists/main（建議帶 token 以取得 lock_status）
   Future<List<PickListMain>> fetchPickListMain({
     String? employeeId,
+    int priorOpenDays = kDefaultPriorOpenDays,
   }) async {
+    final qp = <String, String>{
+      'prior_open_days': '$priorOpenDays',
+    };
+    if (employeeId != null && employeeId.isNotEmpty) {
+      qp['employeeNo'] = employeeId;
+    }
     final mainUri = Uri.parse(
       '${_config.uploadBase}/api/v1/picking-lists/main',
-    ).replace(
-      queryParameters: employeeId != null && employeeId.isNotEmpty
-          ? {'employeeNo': employeeId}
-          : null,
-    );
+    ).replace(queryParameters: qp);
 
     final mainResp = await _client.get(mainUri, headers: _headers());
     _checkUnauthorized(mainResp);
@@ -388,7 +398,7 @@ class PickListService {
   }
 }
 
-/// 今日揀貨單總量（GET /main/summary）
+/// 揀貨單總量摘要（GET /main/summary，與列表相同 prior_open_days）
 class MainSummary {
   MainSummary({required this.totalSheets, required this.totalEntries});
   final int totalSheets;

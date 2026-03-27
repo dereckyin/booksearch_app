@@ -110,7 +110,9 @@ class _PickListScreenState extends State<PickListScreen>
 
   Future<void> _openMergedItems() async {
     if (_selectedSdNos.length < 2) return;
-    final all = await _service.fetchPickListMain();
+    final all = await _service.fetchPickListMain(
+      priorOpenDays: PickListService.kDefaultPriorOpenDays,
+    );
     if (!mounted) return;
     // Set 已保證同一 sd_no 只會勾選一次；若 API 重複回傳同一單號，這裡再依 sd_no 去重
     final pickedBySd = <String, PickListMain>{};
@@ -208,7 +210,9 @@ class _PickListScreenState extends State<PickListScreen>
   }
 
   void _load() {
-    final fut = _service.fetchPickListMain();
+    final fut = _service.fetchPickListMain(
+      priorOpenDays: PickListService.kDefaultPriorOpenDays,
+    );
     setState(() {
       _futureMain = fut;
       _futureSummary = _loadSummary();
@@ -398,7 +402,9 @@ class _PickListScreenState extends State<PickListScreen>
 
   Future<_SummaryData> _loadSummary() async {
     try {
-      final summary = await _service.getSummary();
+      final summary = await _service.getSummary(
+        priorOpenDays: PickListService.kDefaultPriorOpenDays,
+      );
       final myToday = await _service.getMyToday();
       return _SummaryData(summary: summary, myToday: myToday);
     } catch (_) {
