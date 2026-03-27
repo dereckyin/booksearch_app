@@ -112,7 +112,14 @@ class _PickListScreenState extends State<PickListScreen>
     if (_selectedSdNos.length < 2) return;
     final all = await _service.fetchPickListMain();
     if (!mounted) return;
-    final picked = all.where((m) => _selectedSdNos.contains(m.sdNo)).toList();
+    // Set 已保證同一 sd_no 只會勾選一次；若 API 重複回傳同一單號，這裡再依 sd_no 去重
+    final pickedBySd = <String, PickListMain>{};
+    for (final m in all) {
+      if (_selectedSdNos.contains(m.sdNo)) {
+        pickedBySd.putIfAbsent(m.sdNo, () => m);
+      }
+    }
+    final picked = pickedBySd.values.toList();
     if (picked.length < 2) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -128,6 +135,30 @@ class _PickListScreenState extends State<PickListScreen>
       return;
     }
     picked.sort((a, b) => a.sdNo.compareTo(b.sdNo));
+    // 重新拉清單後若有人已領走其中一單，不可再進合併（否則會略過 lock 仍開明細）
+    final blocked = picked
+        .where((m) => m.normalizedLockStatus == 'locked_by_other')
+        .toList();
+    if (blocked.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              blocked.length == 1
+                  ? '單據 ${blocked.first.sdNo} 已被他人領取，請重新選擇'
+                  : '選取範圍內有 ${blocked.length} 張單據已被他人領取，請重新選擇',
+            ),
+          ),
+        );
+        setState(() {
+          _selectionMode = false;
+          _selectedSdNos.clear();
+          _mergeSelectTabIndex = null;
+        });
+      }
+      _reload();
+      return;
+    }
     final locked = <String>[];
     try {
       for (final m in picked) {
