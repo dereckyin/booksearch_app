@@ -121,7 +121,7 @@ class _PickListScreenState extends State<PickListScreen>
         pickedBySd.putIfAbsent(m.sdNo, () => m);
       }
     }
-    final picked = pickedBySd.values.toList();
+    var picked = pickedBySd.values.toList();
     if (picked.length < 2) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -136,7 +136,8 @@ class _PickListScreenState extends State<PickListScreen>
       _reload();
       return;
     }
-    picked.sort((a, b) => a.sdNo.compareTo(b.sdNo));
+    // 與多選列表順序一致（列表已在多選模式下排過）；此處再排一次因 fetch 後主檔可能更新
+    picked = sortMergeMainsForPickOrder(picked);
     // 重新拉清單後若有人已領走其中一單，不可再進合併（否則會略過 lock 仍開明細）
     final blocked = picked
         .where((m) => m.normalizedLockStatus == 'locked_by_other')
@@ -291,7 +292,7 @@ class _PickListScreenState extends State<PickListScreen>
         );
         bundles.add((main: m, items: items));
       }
-      final plan = buildMergePlan(bundles);
+      final plan = buildMergePlan(bundles, mergeOrderAt: DateTime.now());
       final merged = plan.mergedItems;
       if (merged.isEmpty) return false;
       final validKeys =
@@ -541,9 +542,10 @@ class _PickListScreenState extends State<PickListScreen>
                             controller: _tabController,
                             children: [
                               _MainList(
-                                rows: grouped['未撿貨(A)']!
-                                    .map((m) => <PickListMain>[m])
-                                    .toList(),
+                                rows: _unpickedRowsForMergeSelect(
+                                  grouped['未撿貨(A)']!,
+                                  0,
+                                ),
                                 emptyText: '目前沒有未撿貨(A)的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
@@ -559,9 +561,10 @@ class _PickListScreenState extends State<PickListScreen>
                                 onToggleSelect: _toggleSelect,
                               ),
                               _MainList(
-                                rows: grouped['未撿貨(B)']!
-                                    .map((m) => <PickListMain>[m])
-                                    .toList(),
+                                rows: _unpickedRowsForMergeSelect(
+                                  grouped['未撿貨(B)']!,
+                                  1,
+                                ),
                                 emptyText: '目前沒有未撿貨(B)的揀貨單',
                                 service: _service,
                                 showDateOnCards: widget.showDateOnCards,
@@ -635,6 +638,18 @@ class _PickListScreenState extends State<PickListScreen>
         ),
       ],
     );
+  }
+
+  /// 多選合併時依通路+件數少優先排序，方便勾選；取消多選則維持 [_groupMainByStatus] 原順序。
+  List<List<PickListMain>> _unpickedRowsForMergeSelect(
+    List<PickListMain> mains,
+    int areaTabIndex,
+  ) {
+    if (!_selectionMode || _mergeSelectTabIndex != areaTabIndex) {
+      return mains.map((m) => <PickListMain>[m]).toList();
+    }
+    final sorted = sortMergeMainsForPickOrder(List<PickListMain>.of(mains));
+    return sorted.map((m) => <PickListMain>[m]).toList();
   }
 
   Map<String, List<PickListMain>> _groupMainByStatus(List<PickListMain> mains) {
@@ -2190,7 +2205,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           for (var i = 0; i < mains.length; i++)
             (main: mains[i], items: lists[i]),
         ];
-        final plan = buildMergePlan(bundles);
+        final plan = buildMergePlan(bundles, mergeOrderAt: DateTime.now());
         data = plan.mergedItems;
         mergeSuffixes = plan.sdNoToSuffix;
         mergeOrderedTitles = plan.orderedTitlesForAppBar;

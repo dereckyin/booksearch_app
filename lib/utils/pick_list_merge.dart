@@ -177,21 +177,105 @@ String chineseOrdinal(int n) {
   return (display.substring(0, i), display.substring(i));
 }
 
-int _compareMainForMergeCard(PickListMain a, PickListMain b) {
-  final ca = a.ttlMustQty ?? 0;
-  final cb = b.ttlMustQty ?? 0;
-  final c = cb.compareTo(ca);
-  if (c != 0) return c;
+// --- 合併撿貨：通路優先序（平日／假日）+ 件數少優先 ---
+
+/// 台灣國定假日（YYYYMMDD），可自行擴充；與週六日皆走假日通路順序。
+final Set<String> taiwanMergePickPublicHolidayYyyymmdd = <String>{
+  // 例：'20250101', '20250128',
+};
+
+/// 以 UTC+8 對齊之曆日（用於假日判斷與 YYYYMMDD）。
+DateTime mergeTaiwanCalendarDate(DateTime at) {
+  final ms = at.toUtc().millisecondsSinceEpoch + 8 * 3600 * 1000;
+  final u = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+  return DateTime.utc(u.year, u.month, u.day);
+}
+
+String mergeTaiwanYyyymmdd(DateTime at) {
+  final c = mergeTaiwanCalendarDate(at);
+  final y = c.year.toString().padLeft(4, '0');
+  final m = c.month.toString().padLeft(2, '0');
+  final d = c.day.toString().padLeft(2, '0');
+  return '$y$m$d';
+}
+
+/// 週六日或 [taiwanMergePickPublicHolidayYyyymmdd] 視為假日排序。
+bool isMergePickHolidayOrder(DateTime at) {
+  if (taiwanMergePickPublicHolidayYyyymmdd.contains(mergeTaiwanYyyymmdd(at))) {
+    return true;
+  }
+  final wd = mergeTaiwanCalendarDate(at).weekday;
+  return wd == DateTime.saturday || wd == DateTime.sunday;
+}
+
+/// 通路階層（數字越小越優先）。比對前請用 [PickListMain] 之 companyId / cnno / deliver。
+int mergeChannelTier(PickListMain m, {required bool holidayOrder}) {
+  final comp = (m.companyId ?? '').trim().toUpperCase();
+  final cn = (m.cnno ?? '').trim().toUpperCase();
+  final d = (m.deliver ?? '').trim().toUpperCase();
+
+  if (comp == 'IRD') return 0;
+
+  if (!holidayOrder) {
+    if (cn == 'H') return 1;
+    if (cn == 'SPE') return 2;
+    if (cn == 'SPH') return 3;
+    if ((comp == 'SPE' || comp == 'SPH') && d == 'B') return 4;
+    if (comp == 'TAZ' || d == 'C') return 5;
+    return 6;
+  }
+
+  if (cn == 'SPE') return 1;
+  if (cn == 'SPH') return 2;
+  if ((comp == 'SPE' || comp == 'SPH') &&
+      d == 'B' &&
+      cn != 'SPE' &&
+      cn != 'SPH') {
+    return 3;
+  }
+  if (comp == 'TAZ' || d == 'C') return 4;
+  if (d != 'S' && d != 'L' && cn != 'H') return 5;
+  if (d == 'S' || d == 'L') return 6;
+  if (cn == 'H') return 7;
+  return 5;
+}
+
+num _ttlForMergeSort(PickListMain m) => m.ttlMustQty ?? 0;
+
+/// 合併多選排序：通路階層 → ttl 升序 → sd_no。
+int compareMergeMainsPickOrder(
+  PickListMain a,
+  PickListMain b, {
+  required bool holidayOrder,
+}) {
+  final ta = mergeChannelTier(a, holidayOrder: holidayOrder);
+  final tb = mergeChannelTier(b, holidayOrder: holidayOrder);
+  final tc = ta.compareTo(tb);
+  if (tc != 0) return tc;
+  final qa = _ttlForMergeSort(a);
+  final qb = _ttlForMergeSort(b);
+  final qc = qa.compareTo(qb);
+  if (qc != 0) return qc;
   return a.sdNo.compareTo(b.sdNo);
 }
 
-/// [撿貨中] 合併卡用：依主檔件數多到少、同件數依 sd_no，與後綴（一）（二）順序一致。
-/// （明細頁合併排序依 API 品項列數，與此可能略有差異。）
-List<PickListMain> mergeCardMainsOrdered(List<PickListMain> mains) {
+/// 合併撿貨用主檔順序（[at] 決定平日／假日；預設現在）。
+List<PickListMain> sortMergeMainsForPickOrder(
+  List<PickListMain> mains, {
+  DateTime? at,
+}) {
   if (mains.isEmpty) return [];
   if (mains.length < 2) return List<PickListMain>.of(mains);
-  final sorted = List<PickListMain>.of(mains)..sort(_compareMainForMergeCard);
+  final ref = at ?? DateTime.now();
+  final holiday = isMergePickHolidayOrder(ref);
+  final sorted = List<PickListMain>.of(mains)
+    ..sort((a, b) => compareMergeMainsPickOrder(a, b, holidayOrder: holiday));
   return sorted;
+}
+
+/// [撿貨中] 合併卡列印順序：與合併明細（一）（二）相同規則（通路 + 件數少優先 + sd_no）。
+List<PickListMain> mergeCardMainsOrdered(List<PickListMain> mains) {
+  return sortMergeMainsForPickOrder(mains);
 }
 
 int? _parseSeqNum(String? raw) {
@@ -235,10 +319,11 @@ class MergePickPlan {
   final List<String> orderedTitlesForAppBar;
 }
 
-/// 依各單明細筆數由多到少給後綴；品項聯集後依櫃號、序號排序。
+/// 依通路（平日／假日）與主檔件數少優先給後綴；品項聯集後先依單順序再依櫃號、序號排序。
 MergePickPlan buildMergePlan(
-  List<({PickListMain main, List<PickListItem> items})> bundles,
-) {
+  List<({PickListMain main, List<PickListItem> items})> bundles, {
+  DateTime? mergeOrderAt,
+}) {
   if (bundles.isEmpty) {
     return MergePickPlan(
       mergedItems: [],
@@ -247,27 +332,31 @@ MergePickPlan buildMergePlan(
     );
   }
 
-  final sortedForRank = List<({PickListMain main, List<PickListItem> items})>.of(
-    bundles,
-  )..sort((a, b) {
-      final c = b.items.length.compareTo(a.items.length);
-      if (c != 0) return c;
-      return a.main.sdNo.compareTo(b.main.sdNo);
-    });
+  final at = mergeOrderAt ?? DateTime.now();
+  final holiday = isMergePickHolidayOrder(at);
+  final orderedBundles =
+      List<({PickListMain main, List<PickListItem> items})>.of(bundles)
+        ..sort(
+          (a, b) => compareMergeMainsPickOrder(
+            a.main,
+            b.main,
+            holidayOrder: holiday,
+          ),
+        );
 
   final sdNoToSuffix = <String, String>{};
-  for (var i = 0; i < sortedForRank.length; i++) {
-    sdNoToSuffix[sortedForRank[i].main.sdNo] = '（${chineseOrdinal(i + 1)}）';
+  for (var i = 0; i < orderedBundles.length; i++) {
+    sdNoToSuffix[orderedBundles[i].main.sdNo] = '（${chineseOrdinal(i + 1)}）';
   }
 
   final merged = <PickListItem>[];
-  for (final b in bundles) {
+  for (final b in orderedBundles) {
     merged.addAll(b.items);
   }
   merged.sort(_comparePickItemsForMerge);
 
   final orderedTitlesForAppBar = [
-    for (final b in sortedForRank)
+    for (final b in orderedBundles)
       '${b.main.sdNo}${sdNoToSuffix[b.main.sdNo] ?? ''}',
   ];
 
