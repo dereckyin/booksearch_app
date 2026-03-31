@@ -17,10 +17,7 @@ void main() {
   });
 
   group('buildMergePlan', () {
-    /// 2025-06-04 週三（台灣），走平日通路序
-    final weekdayAt = DateTime.utc(2025, 6, 4, 4, 0);
-
-    test('weekday: 灰熊 before 蝦皮店到店; suffix by channel then ttl asc; rk merge sort', () {
+    test('higher ttl first (一)(二); line count ignored; then rk merge sort', () {
       final grizzly = PickListMain(sdNo: 'A', companyId: 'IRD', ttlMustQty: 99);
       final shopeeStore = PickListMain(sdNo: 'B', cnno: 'SPE', ttlMustQty: 1);
       final plan = buildMergePlan(
@@ -60,7 +57,6 @@ void main() {
             ],
           ),
         ],
-        mergeOrderAt: weekdayAt,
       );
       expect(plan.sdNoToSuffix['A'], '（一）');
       expect(plan.sdNoToSuffix['B'], '（二）');
@@ -69,30 +65,50 @@ void main() {
       expect(plan.mergedItems.map((e) => e.rkId).toList(), ['R1', 'R2', 'R3']);
     });
 
-    test('same tier: lower ttl first then sd_no', () {
+    test('same ttl: sd_no ascending tiebreak', () {
       final plan = buildMergePlan(
         [
           (
-            main: PickListMain(sdNo: 'Z', ttlMustQty: 2),
+            main: PickListMain(sdNo: 'Z', ttlMustQty: 3),
             items: [
               PickListItem(id: 'x', productId: 'p', title: 't', imageUrl: '', sdNo: 'Z'),
             ],
           ),
           (
-            main: PickListMain(sdNo: 'M', ttlMustQty: 1),
+            main: PickListMain(sdNo: 'M', ttlMustQty: 3),
             items: [
               PickListItem(id: 'x', productId: 'p', title: 't', imageUrl: '', sdNo: 'M'),
             ],
           ),
         ],
-        mergeOrderAt: weekdayAt,
       );
       expect(plan.sdNoToSuffix['M'], '（一）');
       expect(plan.sdNoToSuffix['Z'], '（二）');
     });
 
-    test('holiday: 蝦皮店到店 before 大榮', () {
-      final saturdayTw = DateTime.utc(2025, 6, 7, 4, 0);
+    test('ttl beats line count: fewer lines but higher ttl is (一)', () {
+      final plan = buildMergePlan(
+        [
+          (
+            main: PickListMain(sdNo: 'MANY', ttlMustQty: 2),
+            items: [
+              PickListItem(id: 'a', productId: 'p', title: 't', imageUrl: '', sdNo: 'MANY'),
+              PickListItem(id: 'b', productId: 'p', title: 't', imageUrl: '', sdNo: 'MANY'),
+            ],
+          ),
+          (
+            main: PickListMain(sdNo: 'FEW', ttlMustQty: 10),
+            items: [
+              PickListItem(id: 'c', productId: 'p', title: 't', imageUrl: '', sdNo: 'FEW'),
+            ],
+          ),
+        ],
+      );
+      expect(plan.sdNoToSuffix['FEW'], '（一）');
+      expect(plan.sdNoToSuffix['MANY'], '（二）');
+    });
+
+    test('missing ttl treated as 0; sd_no tiebreak', () {
       final plan = buildMergePlan(
         [
           (
@@ -108,10 +124,9 @@ void main() {
             ],
           ),
         ],
-        mergeOrderAt: saturdayTw,
       );
-      expect(plan.sdNoToSuffix['S1'], '（一）');
-      expect(plan.sdNoToSuffix['H1'], '（二）');
+      expect(plan.sdNoToSuffix['H1'], '（一）');
+      expect(plan.sdNoToSuffix['S1'], '（二）');
     });
   });
 
@@ -137,13 +152,13 @@ void main() {
   });
 
   group('mergeCardMainsOrdered', () {
-    test('same weekday tier: ttl asc then sd_no', () {
+    test('ttl desc then sd_no', () {
       final o = mergeCardMainsOrdered([
         PickListMain(sdNo: 'FC_B', ttlMustQty: 32, cnno: '7'),
         PickListMain(sdNo: 'FC_A', ttlMustQty: 5, cnno: 'F'),
       ]);
-      expect(o[0].sdNo, 'FC_A');
-      expect(o[1].sdNo, 'FC_B');
+      expect(o[0].sdNo, 'FC_B');
+      expect(o[1].sdNo, 'FC_A');
     });
     test('single element list unchanged', () {
       final o = mergeCardMainsOrdered([PickListMain(sdNo: 'X')]);

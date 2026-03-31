@@ -273,9 +273,25 @@ List<PickListMain> sortMergeMainsForPickOrder(
   return sorted;
 }
 
-/// [撿貨中] 合併卡列印順序：與合併明細（一）（二）相同規則（通路 + 件數少優先 + sd_no）。
+/// 合併卡子單列順序：主檔 `ttl`（應揀總件數）多到少，再 `sd_no`（與 [buildMergePlan]（一）（二）規則一致）。
 List<PickListMain> mergeCardMainsOrdered(List<PickListMain> mains) {
-  return sortMergeMainsForPickOrder(mains);
+  if (mains.length < 2) return List<PickListMain>.of(mains);
+  final sorted = List<PickListMain>.of(mains)
+    ..sort((a, b) {
+      final c = _ttlForMergeSort(b).compareTo(_ttlForMergeSort(a));
+      if (c != 0) return c;
+      return a.sdNo.compareTo(b.sdNo);
+    });
+  return sorted;
+}
+
+int _compareMergeBundlesByTtlDesc(
+  ({PickListMain main, List<PickListItem> items}) a,
+  ({PickListMain main, List<PickListItem> items}) b,
+) {
+  final c = _ttlForMergeSort(b.main).compareTo(_ttlForMergeSort(a.main));
+  if (c != 0) return c;
+  return a.main.sdNo.compareTo(b.main.sdNo);
 }
 
 int? _parseSeqNum(String? raw) {
@@ -319,11 +335,11 @@ class MergePickPlan {
   final List<String> orderedTitlesForAppBar;
 }
 
-/// 依通路（平日／假日）與主檔件數少優先給後綴；品項聯集後先依單順序再依櫃號、序號排序。
+/// 合併明細（一）（二）：依各單主檔 [PickListMain.ttlMustQty] 總件數多到少，同則 `sd_no`；品項聯集後再依櫃號、序號排序。
+/// （多選勾選列表仍用 [sortMergeMainsForPickOrder]，不經此函式。）
 MergePickPlan buildMergePlan(
-  List<({PickListMain main, List<PickListItem> items})> bundles, {
-  DateTime? mergeOrderAt,
-}) {
+  List<({PickListMain main, List<PickListItem> items})> bundles,
+) {
   if (bundles.isEmpty) {
     return MergePickPlan(
       mergedItems: [],
@@ -332,17 +348,9 @@ MergePickPlan buildMergePlan(
     );
   }
 
-  final at = mergeOrderAt ?? DateTime.now();
-  final holiday = isMergePickHolidayOrder(at);
   final orderedBundles =
       List<({PickListMain main, List<PickListItem> items})>.of(bundles)
-        ..sort(
-          (a, b) => compareMergeMainsPickOrder(
-            a.main,
-            b.main,
-            holidayOrder: holiday,
-          ),
-        );
+        ..sort(_compareMergeBundlesByTtlDesc);
 
   final sdNoToSuffix = <String, String>{};
   for (var i = 0; i < orderedBundles.length; i++) {

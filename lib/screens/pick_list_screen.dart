@@ -136,8 +136,8 @@ class _PickListScreenState extends State<PickListScreen>
       _reload();
       return;
     }
-    // 與多選列表順序一致（列表已在多選模式下排過）；此處再排一次因 fetch 後主檔可能更新
-    picked = sortMergeMainsForPickOrder(picked);
+    // 合併明細（一）（二）依主檔 ttl 多到少（見 buildMergePlan）；與合併卡 [mergeCardMainsOrdered] 一致
+    picked = mergeCardMainsOrdered(picked);
     // 重新拉清單後若有人已領走其中一單，不可再進合併（否則會略過 lock 仍開明細）
     final blocked = picked
         .where((m) => m.normalizedLockStatus == 'locked_by_other')
@@ -292,7 +292,7 @@ class _PickListScreenState extends State<PickListScreen>
         );
         bundles.add((main: m, items: items));
       }
-      final plan = buildMergePlan(bundles, mergeOrderAt: DateTime.now());
+      final plan = buildMergePlan(bundles);
       final merged = plan.mergedItems;
       if (merged.isEmpty) return false;
       final validKeys =
@@ -2205,7 +2205,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           for (var i = 0; i < mains.length; i++)
             (main: mains[i], items: lists[i]),
         ];
-        final plan = buildMergePlan(bundles, mergeOrderAt: DateTime.now());
+        final plan = buildMergePlan(bundles);
         data = plan.mergedItems;
         mergeSuffixes = plan.sdNoToSuffix;
         mergeOrderedTitles = plan.orderedTitlesForAppBar;
