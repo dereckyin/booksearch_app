@@ -50,6 +50,7 @@ class _PickListScreenState extends State<PickListScreen>
   Future<List<PickListMain>>? _futureMain;
   Future<_SummaryData>? _futureSummary;
   Future<List<CannotPickReport>>? _futureCannotPick;
+  Future<List<CannotPickReport>>? _futureCannotPickAbnormal;
   late final TabController _tabController;
   final Map<String, bool> _canFinishToQcBySdNo = {};
   static const int _tabDone = 3;
@@ -65,7 +66,7 @@ class _PickListScreenState extends State<PickListScreen>
   void initState() {
     super.initState();
     _service = widget.service ?? PickListService();
-    _tabController = TabController(length: 5, vsync: this, initialIndex: 0);
+    _tabController = TabController(length: 6, vsync: this, initialIndex: 0);
     _tabController.addListener(_onPickTabChanged);
     _load();
   }
@@ -218,6 +219,7 @@ class _PickListScreenState extends State<PickListScreen>
       _futureMain = fut;
       _futureSummary = _loadSummary();
       _futureCannotPick = _service.fetchCannotPickToday(all: true);
+      _futureCannotPickAbnormal = _service.fetchCannotPickAbnormal(all: true);
       _canFinishToQcBySdNo.clear();
     });
     fut
@@ -432,6 +434,7 @@ class _PickListScreenState extends State<PickListScreen>
             Tab(text: '撿貨中'),
             Tab(text: '撿貨完'),
             Tab(text: '找不到'),
+            Tab(text: '分貨異常'),
           ],
         ),
         // 多選合併僅在未撿貨(A)/(B)；撿貨中／撿貨完不開放新建合併
@@ -617,6 +620,7 @@ class _PickListScreenState extends State<PickListScreen>
                               ),
                               _CannotPickTodayTab(
                                 future: _futureCannotPick,
+                                service: _service,
                                 mainBySdNo: {
                                   for (final m in mains) m.sdNo: m,
                                 },
@@ -626,6 +630,22 @@ class _PickListScreenState extends State<PickListScreen>
                                         _service.fetchCannotPickToday(all: true);
                                   });
                                   await _futureCannotPick;
+                                },
+                              ),
+                              _CannotPickAbnormalTab(
+                                future: _futureCannotPickAbnormal,
+                                service: _service,
+                                mainBySdNo: {
+                                  for (final m in mains) m.sdNo: m,
+                                },
+                                onRefresh: () async {
+                                  setState(() {
+                                    _futureCannotPickAbnormal =
+                                        _service.fetchCannotPickAbnormal(
+                                          all: true,
+                                        );
+                                  });
+                                  await _futureCannotPickAbnormal;
                                 },
                               ),
                             ],
@@ -897,11 +917,13 @@ class _SummaryData {
 class _CannotPickTodayTab extends StatelessWidget {
   const _CannotPickTodayTab({
     required this.future,
+    required this.service,
     required this.mainBySdNo,
     required this.onRefresh,
   });
 
   final Future<List<CannotPickReport>>? future;
+  final PickListService service;
   final Map<String, PickListMain> mainBySdNo;
   final Future<void> Function() onRefresh;
 
@@ -982,6 +1004,7 @@ class _CannotPickTodayTab extends StatelessWidget {
                             MaterialPageRoute(
                               builder: (_) => _CannotPickOrderDetailScreen(
                                 group: g,
+                                service: service,
                               ),
                             ),
                           );
@@ -1035,10 +1058,53 @@ class _CannotPickOrderGroup {
       reports.isEmpty ? DateTime.fromMillisecondsSinceEpoch(0) : reports.first.reportedAt;
 }
 
-class _CannotPickOrderDetailScreen extends StatelessWidget {
-  const _CannotPickOrderDetailScreen({required this.group});
+const List<String> _handlingResults = ['有書', '缺書', '人為錯誤揀錯書', '人為錯誤誤按完成'];
+const Set<String> _handlingNeedsCorrectLogcode = {
+  '缺書',
+  '人為錯誤揀錯書',
+  '人為錯誤誤按完成',
+};
+const List<String> _abnormalResults = ['書在儲位上', '上架錯誤', '遺失', '損壞無庫存', '其他'];
+
+class _CannotPickOrderDetailScreen extends StatefulWidget {
+  const _CannotPickOrderDetailScreen({
+    required this.group,
+    required this.service,
+  });
 
   final _CannotPickOrderGroup group;
+  final PickListService service;
+
+  @override
+  State<_CannotPickOrderDetailScreen> createState() =>
+      _CannotPickOrderDetailScreenState();
+}
+
+class _CannotPickOrderDetailScreenState extends State<_CannotPickOrderDetailScreen> {
+  late List<CannotPickReport> _reports;
+  final Map<int, String?> _handlingById = {};
+  final Map<int, TextEditingController> _correctLogcodeControllers = {};
+  final Set<int> _saving = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _reports = List<CannotPickReport>.from(widget.group.reports);
+    for (final r in _reports) {
+      _handlingById[r.id] = r.handlingResult;
+      _correctLogcodeControllers[r.id] = TextEditingController(
+        text: r.correctLogcode ?? '',
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _correctLogcodeControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   String _fmt(DateTime dt) {
     if (dt.millisecondsSinceEpoch == 0) return '-';
@@ -1063,22 +1129,91 @@ class _CannotPickOrderDetailScreen extends StatelessWidget {
     return null;
   }
 
+  Future<void> _saveHandling(CannotPickReport report) async {
+    final handling = _handlingById[report.id];
+    if (handling == null || handling.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請先選擇處理結果')));
+      return;
+    }
+    final correctLogcode =
+        (_correctLogcodeControllers[report.id]?.text ?? '').trim();
+    if (_handlingNeedsCorrectLogcode.contains(handling) &&
+        correctLogcode.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('此處理結果需輸入正確書籍物流條碼')));
+      return;
+    }
+    setState(() => _saving.add(report.id));
+    try {
+      await widget.service.updateCannotPickHandling(
+        id: report.id,
+        handlingResult: handling,
+        correctLogcode: correctLogcode.isEmpty ? null : correctLogcode,
+      );
+      if (!mounted) return;
+      setState(() {
+        final idx = _reports.indexWhere((e) => e.id == report.id);
+        if (idx >= 0) {
+          final prev = _reports[idx];
+          _reports[idx] = CannotPickReport(
+            id: prev.id,
+            sdNo: prev.sdNo,
+            prodId: prev.prodId,
+            rkId: prev.rkId,
+            reason: prev.reason,
+            logcode: prev.logcode,
+            qty: prev.qty,
+            remark: prev.remark,
+            reportedAt: prev.reportedAt,
+            reportedByName: prev.reportedByName,
+            reportedByPhone: prev.reportedByPhone,
+            title: prev.title,
+            imageUrl: prev.imageUrl,
+            handlingResult: handling,
+            correctLogcode: correctLogcode.isEmpty ? null : correctLogcode,
+            abnormalResult: prev.abnormalResult,
+            abnormalRemark: prev.abnormalRemark,
+            abnormalUpdatedAt: prev.abnormalUpdatedAt,
+            abnormalUpdatedBy: prev.abnormalUpdatedBy,
+          );
+        }
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已更新處理結果')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新失敗: $e')));
+    } finally {
+      if (mounted) setState(() => _saving.remove(report.id));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final reports = group.reports;
     return Scaffold(
-      appBar: AppBar(title: Text('找不到明細 ${group.sdNo}')),
+      appBar: AppBar(title: Text('找不到明細 ${widget.group.sdNo}')),
       body: ListView.separated(
         padding: const EdgeInsets.all(12),
-        itemCount: reports.length,
+        itemCount: _reports.length,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
-          final r = reports[index];
+          final r = _reports[index];
+          final selectedHandling = _handlingById[r.id];
+          final requiresCorrect =
+              selectedHandling != null &&
+              _handlingNeedsCorrectLogcode.contains(selectedHandling);
           final who = (r.reportedByName != null && r.reportedByName!.isNotEmpty)
               ? r.reportedByName!
               : (r.reportedByPhone ?? '-');
           final imageUrl = _resolveImageUrl(r);
           final qtyText = r.qty == null ? '-' : '${r.qty}';
+          final saving = _saving.contains(r.id);
           return Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -1104,7 +1239,8 @@ class _CannotPickOrderDetailScreen extends StatelessWidget {
                               : Image.network(
                                   imageUrl,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => Container(
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(
                                     color: Theme.of(context)
                                         .colorScheme
                                         .surfaceContainerHighest,
@@ -1153,6 +1289,54 @@ class _CannotPickOrderDetailScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text('備註：${r.remark}'),
                   ],
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedHandling,
+                    decoration: const InputDecoration(
+                      labelText: '處理結果',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _handlingResults
+                        .map(
+                          (e) => DropdownMenuItem<String>(value: e, child: Text(e)),
+                        )
+                        .toList(),
+                    onChanged: saving
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _handlingById[r.id] = value;
+                            });
+                          },
+                  ),
+                  if (requiresCorrect) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _correctLogcodeControllers[r.id],
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: '正確書籍物流條碼',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      FilledButton(
+                        onPressed: saving ? null : () => _saveHandling(r),
+                        child: Text(saving ? '儲存中...' : '儲存處理結果'),
+                      ),
+                      if (r.handlingResult != null && r.handlingResult!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 10),
+                          child: Text(
+                            '目前：${r.handlingResult}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     _fmt(r.reportedAt),
@@ -1178,6 +1362,403 @@ class _CannotPickOrderDetailScreen extends StatelessWidget {
       child: Text(
         '$label：$value',
         style: Theme.of(context).textTheme.labelMedium,
+      ),
+    );
+  }
+}
+
+class _CannotPickAbnormalTab extends StatelessWidget {
+  const _CannotPickAbnormalTab({
+    required this.future,
+    required this.service,
+    required this.mainBySdNo,
+    required this.onRefresh,
+  });
+
+  final Future<List<CannotPickReport>>? future;
+  final PickListService service;
+  final Map<String, PickListMain> mainBySdNo;
+  final Future<void> Function() onRefresh;
+
+  String _fmt(DateTime dt) {
+    if (dt.millisecondsSinceEpoch == 0) return '-';
+    final y = dt.year.toString();
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<CannotPickReport>>(
+      future: future,
+      builder: (context, snapshot) {
+        if (future == null || snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('載入失敗'),
+                const SizedBox(height: 8),
+                Text('${snapshot.error}'),
+                const SizedBox(height: 8),
+                ElevatedButton(onPressed: onRefresh, child: const Text('重試')),
+              ],
+            ),
+          );
+        }
+        final items = snapshot.data ?? [];
+        final grouped = <String, List<CannotPickReport>>{};
+        for (final r in items) {
+          grouped.putIfAbsent(r.sdNo, () => <CannotPickReport>[]).add(r);
+        }
+        final groups = grouped.entries.map((entry) {
+          final reports = entry.value.toList()
+            ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+          return _CannotPickOrderGroup(
+            sdNo: entry.key,
+            main: mainBySdNo[entry.key],
+            reports: reports,
+          );
+        }).toList()
+          ..sort((a, b) => b.latestReportedAt.compareTo(a.latestReportedAt));
+        return RefreshIndicator(
+          onRefresh: onRefresh,
+          child: groups.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 48),
+                    Center(child: Text('目前沒有分貨異常案件')),
+                  ],
+                )
+              : ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: groups.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final g = groups[index];
+                    final main = g.main;
+                    final channel = main?.channelDisplayText ?? '-';
+                    return Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => _CannotPickAbnormalDetailScreen(
+                                group: g,
+                                service: service,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '揀貨單號：${g.sdNo}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text('流程：分貨異常'),
+                              const SizedBox(height: 4),
+                              Text('通路：$channel'),
+                              const SizedBox(height: 4),
+                              Text('件數：${g.reports.length}'),
+                              const SizedBox(height: 8),
+                              Text(
+                                '最近回報：${_fmt(g.latestReportedAt)}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        );
+      },
+    );
+  }
+}
+
+class _CannotPickAbnormalDetailScreen extends StatefulWidget {
+  const _CannotPickAbnormalDetailScreen({
+    required this.group,
+    required this.service,
+  });
+
+  final _CannotPickOrderGroup group;
+  final PickListService service;
+
+  @override
+  State<_CannotPickAbnormalDetailScreen> createState() =>
+      _CannotPickAbnormalDetailScreenState();
+}
+
+class _CannotPickAbnormalDetailScreenState extends State<_CannotPickAbnormalDetailScreen> {
+  late List<CannotPickReport> _reports;
+  final Map<int, String?> _abnormalById = {};
+  final Map<int, TextEditingController> _abnormalRemarkControllers = {};
+  final Set<int> _saving = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _reports = List<CannotPickReport>.from(widget.group.reports);
+    for (final r in _reports) {
+      _abnormalById[r.id] = r.abnormalResult;
+      _abnormalRemarkControllers[r.id] = TextEditingController(
+        text: r.abnormalRemark ?? '',
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _abnormalRemarkControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  String _fmt(DateTime dt) {
+    if (dt.millisecondsSinceEpoch == 0) return '-';
+    final y = dt.year.toString();
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
+
+  String? _resolveImageUrl(CannotPickReport report) {
+    final raw = report.imageUrl?.trim() ?? '';
+    if (raw.isNotEmpty) {
+      return raw.startsWith('http')
+          ? raw
+          : Uri.parse(ApiConfig().uploadBase).resolve(raw).toString();
+    }
+    if (report.prodId.isNotEmpty) {
+      return 'https://media.taaze.tw/showLargeImage.html?sc=${report.prodId}&height=170&width=250';
+    }
+    return null;
+  }
+
+  Future<void> _saveAbnormal(CannotPickReport report) async {
+    final abnormalResult = _abnormalById[report.id];
+    if (abnormalResult == null || abnormalResult.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請先選擇處理結果')));
+      return;
+    }
+    final abnormalRemark =
+        (_abnormalRemarkControllers[report.id]?.text ?? '').trim();
+    if (abnormalResult == '其他' && abnormalRemark.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('選擇其他時需填寫原因')));
+      return;
+    }
+    setState(() => _saving.add(report.id));
+    try {
+      await widget.service.updateCannotPickAbnormalResult(
+        id: report.id,
+        abnormalResult: abnormalResult,
+        abnormalRemark: abnormalRemark.isEmpty ? null : abnormalRemark,
+      );
+      if (!mounted) return;
+      setState(() {
+        final idx = _reports.indexWhere((e) => e.id == report.id);
+        if (idx >= 0) {
+          final prev = _reports[idx];
+          _reports[idx] = CannotPickReport(
+            id: prev.id,
+            sdNo: prev.sdNo,
+            prodId: prev.prodId,
+            rkId: prev.rkId,
+            reason: prev.reason,
+            logcode: prev.logcode,
+            qty: prev.qty,
+            remark: prev.remark,
+            reportedAt: prev.reportedAt,
+            reportedByName: prev.reportedByName,
+            reportedByPhone: prev.reportedByPhone,
+            title: prev.title,
+            imageUrl: prev.imageUrl,
+            handlingResult: prev.handlingResult,
+            correctLogcode: prev.correctLogcode,
+            abnormalResult: abnormalResult,
+            abnormalRemark: abnormalRemark.isEmpty ? null : abnormalRemark,
+            abnormalUpdatedAt: DateTime.now(),
+            abnormalUpdatedBy: prev.abnormalUpdatedBy,
+          );
+        }
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已更新分貨異常結果')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新失敗: $e')));
+    } finally {
+      if (mounted) setState(() => _saving.remove(report.id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('分貨異常 ${widget.group.sdNo}')),
+      body: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemCount: _reports.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final r = _reports[index];
+          final saving = _saving.contains(r.id);
+          final abnormalResult = _abnormalById[r.id];
+          final needsRemark = abnormalResult == '其他';
+          final imageUrl = _resolveImageUrl(r);
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 72,
+                        height: 96,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: imageUrl == null
+                              ? Container(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
+                                  alignment: Alignment.center,
+                                  child: const Icon(Icons.image_not_supported),
+                                )
+                              : Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                    alignment: Alignment.center,
+                                    child:
+                                        const Icon(Icons.broken_image_outlined),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              r.title?.isNotEmpty == true ? r.title! : '（無書名）',
+                              style: Theme.of(context).textTheme.titleSmall,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text('店內碼：${r.prodId}'),
+                            if (r.logcode != null && r.logcode!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text('物流條碼：${r.logcode}'),
+                            ],
+                            if (r.correctLogcode != null &&
+                                r.correctLogcode!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text('正確物流條碼：${r.correctLogcode}'),
+                            ],
+                            const SizedBox(height: 2),
+                            Text('第一層處理：${r.handlingResult ?? '-'}'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: abnormalResult,
+                    decoration: const InputDecoration(
+                      labelText: '分貨異常處理結果',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _abnormalResults
+                        .map((e) => DropdownMenuItem<String>(value: e, child: Text(e)))
+                        .toList(),
+                    onChanged: saving
+                        ? null
+                        : (value) {
+                            setState(() => _abnormalById[r.id] = value);
+                          },
+                  ),
+                  if (needsRemark) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _abnormalRemarkControllers[r.id],
+                      enabled: !saving,
+                      decoration: const InputDecoration(
+                        labelText: '其他原因',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      FilledButton(
+                        onPressed: saving ? null : () => _saveAbnormal(r),
+                        child: Text(saving ? '儲存中...' : '儲存分貨異常結果'),
+                      ),
+                      if (r.abnormalResult != null && r.abnormalResult!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 10),
+                          child: Text(
+                            '目前：${r.abnormalResult}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (r.abnormalRemark != null && r.abnormalRemark!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text('目前備註：${r.abnormalRemark}'),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    _fmt(r.reportedAt),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

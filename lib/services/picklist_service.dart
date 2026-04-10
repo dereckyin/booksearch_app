@@ -261,6 +261,77 @@ class PickListService {
         .toList();
   }
 
+  Future<List<CannotPickReport>> fetchCannotPickAbnormal({
+    bool all = true,
+    String? date,
+  }) async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/cannot-pick/abnormal',
+    ).replace(
+      queryParameters: {
+        'scope': all ? 'all' : 'mine',
+        if (date != null && date.isNotEmpty) 'date': date,
+      },
+    );
+    final resp = await _client.get(uri, headers: _headers());
+    _checkUnauthorized(resp);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('Cannot-pick abnormal API ${resp.statusCode}: ${resp.body}');
+    }
+    final body = jsonDecode(resp.body);
+    if (body is! List) {
+      throw Exception('Cannot-pick abnormal unexpected response format');
+    }
+    return body
+        .whereType<Map<String, dynamic>>()
+        .map(CannotPickReport.fromJson)
+        .toList();
+  }
+
+  Future<void> updateCannotPickHandling({
+    required int id,
+    required String handlingResult,
+    String? correctLogcode,
+  }) async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/cannot-pick/$id/handling',
+    );
+    final body = <String, dynamic>{'handling_result': handlingResult};
+    if (correctLogcode != null && correctLogcode.trim().isNotEmpty) {
+      body['correct_logcode'] = correctLogcode.trim();
+    }
+    final resp = await _client.patch(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode(body),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    throw Exception('更新處理結果失敗 ${resp.statusCode}: ${resp.body}');
+  }
+
+  Future<void> updateCannotPickAbnormalResult({
+    required int id,
+    required String abnormalResult,
+    String? abnormalRemark,
+  }) async {
+    final uri = Uri.parse(
+      '${_config.uploadBase}/api/v1/picking-lists/cannot-pick/$id/abnormal-result',
+    );
+    final body = <String, dynamic>{'abnormal_result': abnormalResult};
+    if (abnormalRemark != null && abnormalRemark.trim().isNotEmpty) {
+      body['abnormal_remark'] = abnormalRemark.trim();
+    }
+    final resp = await _client.patch(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode(body),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode >= 200 && resp.statusCode < 300) return;
+    throw Exception('更新分貨異常結果失敗 ${resp.statusCode}: ${resp.body}');
+  }
+
   /// 櫃位現場圖評分（feedback）：POST /api/v1/picking-lists/shelf-feedback
   ///
   /// **後端開發規格**

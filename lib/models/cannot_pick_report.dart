@@ -1,5 +1,6 @@
 class CannotPickReport {
   CannotPickReport({
+    required this.id,
     required this.sdNo,
     required this.prodId,
     required this.rkId,
@@ -12,8 +13,15 @@ class CannotPickReport {
     this.reportedByPhone,
     this.title,
     this.imageUrl,
+    this.handlingResult,
+    this.correctLogcode,
+    this.abnormalResult,
+    this.abnormalRemark,
+    this.abnormalUpdatedAt,
+    this.abnormalUpdatedBy,
   });
 
+  final int id;
   final String sdNo;
   final String prodId;
   final String rkId;
@@ -26,8 +34,19 @@ class CannotPickReport {
   final String? reportedByPhone;
   final String? title;
   final String? imageUrl;
+  final String? handlingResult;
+  final String? correctLogcode;
+  final String? abnormalResult;
+  final String? abnormalRemark;
+  final DateTime? abnormalUpdatedAt;
+  final String? abnormalUpdatedBy;
 
   factory CannotPickReport.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value, {int fallback = 0}) {
+      if (value == null) return fallback;
+      return int.tryParse(value.toString()) ?? fallback;
+    }
+
     final sdNo = '${json['sd_no'] ?? json['sdNo'] ?? ''}'.trim();
     final prodId = '${json['prod_id'] ?? json['prodId'] ?? ''}'.trim();
     final rkId = '${json['rk_id'] ?? json['rkId'] ?? ''}'.trim();
@@ -57,8 +76,23 @@ class CannotPickReport {
 
     final title = '${json['title'] ?? ''}'.trim();
     final imageUrl = '${json['image_url'] ?? json['imageUrl'] ?? ''}'.trim();
+    final handlingResultRaw =
+        '${json['handling_result'] ?? json['handlingResult'] ?? ''}'.trim();
+    final correctLogcodeRaw =
+        '${json['correct_logcode'] ?? json['correctLogcode'] ?? ''}'.trim();
+    final abnormalResultRaw =
+        '${json['abnormal_result'] ?? json['abnormalResult'] ?? ''}'.trim();
+    final abnormalRemarkRaw =
+        '${json['abnormal_remark'] ?? json['abnormalRemark'] ?? ''}'.trim();
+    final abnormalUpdatedAtRaw =
+        json['abnormal_updated_at'] ?? json['abnormalUpdatedAt'];
+    final abnormalUpdatedAt = DateTime.tryParse('${abnormalUpdatedAtRaw ?? ''}');
+    final abnormalUpdatedByRaw =
+        '${json['abnormal_updated_by'] ?? json['abnormalUpdatedBy'] ?? ''}'
+            .trim();
 
     return CannotPickReport(
+      id: parseInt(json['id']),
       sdNo: sdNo,
       prodId: prodId,
       rkId: rkId,
@@ -71,6 +105,13 @@ class CannotPickReport {
       reportedByPhone: byPhone.isEmpty ? null : byPhone,
       title: title.isEmpty ? null : title,
       imageUrl: imageUrl.isEmpty ? null : imageUrl,
+      handlingResult: handlingResultRaw.isEmpty ? null : handlingResultRaw,
+      correctLogcode: correctLogcodeRaw.isEmpty ? null : correctLogcodeRaw,
+      abnormalResult: abnormalResultRaw.isEmpty ? null : abnormalResultRaw,
+      abnormalRemark: abnormalRemarkRaw.isEmpty ? null : abnormalRemarkRaw,
+      abnormalUpdatedAt: abnormalUpdatedAt,
+      abnormalUpdatedBy:
+          abnormalUpdatedByRaw.isEmpty ? null : abnormalUpdatedByRaw,
     );
   }
 }
