@@ -211,6 +211,28 @@ class _PickListScreenState extends State<PickListScreen>
     if (mounted) _reload();
   }
 
+  Future<List<CannotPickReport>> _loadCannotPickAbnormalForTab() async {
+    final abnormal = await _service.fetchCannotPickAbnormal(all: true).catchError(
+      (_) => <CannotPickReport>[],
+    );
+    // 兼容：有些「找不到回報」會直接以 reason=缺書/人為錯誤... 上報，
+    // 後端若尚未納入 /cannot-pick/abnormal，前端仍要能在「分貨異常」看到。
+    final today = await _service.fetchCannotPickToday(all: true).catchError(
+      (_) => <CannotPickReport>[],
+    );
+    final todayExtra = today
+        .where((r) => _directToAbnormalReasons.contains(r.reason.trim()))
+        .toList();
+
+    final byId = <int, CannotPickReport>{};
+    for (final r in [...abnormal, ...todayExtra]) {
+      byId[r.id] = r;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+    return merged;
+  }
+
   void _load() {
     final fut = _service.fetchPickListMain(
       priorOpenDays: PickListService.kDefaultPriorOpenDays,
@@ -219,7 +241,7 @@ class _PickListScreenState extends State<PickListScreen>
       _futureMain = fut;
       _futureSummary = _loadSummary();
       _futureCannotPick = _service.fetchCannotPickToday(all: true);
-      _futureCannotPickAbnormal = _service.fetchCannotPickAbnormal(all: true);
+      _futureCannotPickAbnormal = _loadCannotPickAbnormalForTab();
       _canFinishToQcBySdNo.clear();
     });
     fut
@@ -641,9 +663,7 @@ class _PickListScreenState extends State<PickListScreen>
                                 onRefresh: () async {
                                   setState(() {
                                     _futureCannotPickAbnormal =
-                                        _service.fetchCannotPickAbnormal(
-                                          all: true,
-                                        );
+                                        _loadCannotPickAbnormalForTab();
                                   });
                                   await _futureCannotPickAbnormal;
                                 },
@@ -908,6 +928,12 @@ class _PickListScreenState extends State<PickListScreen>
   }
 }
 
+const Set<String> _directToAbnormalReasons = {
+  '缺書',
+  '人為錯誤揀錯書',
+  '人為錯誤誤按完成',
+};
+
 class _SummaryData {
   _SummaryData({this.summary, this.myToday});
   final MainSummary? summary;
@@ -960,7 +986,12 @@ class _CannotPickTodayTab extends StatelessWidget {
           );
         }
 
-        final items = snapshot.data ?? [];
+        final items =
+            (snapshot.data ?? [])
+                .where(
+                  (r) => !_directToAbnormalReasons.contains(r.reason.trim()),
+                )
+                .toList();
         final grouped = <String, List<CannotPickReport>>{};
         for (final r in items) {
           grouped.putIfAbsent(r.sdNo, () => <CannotPickReport>[]).add(r);
@@ -3353,7 +3384,15 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     }
   }
 
-  static const _cannotPickReasons = ['缺貨', '損壞', '找不到', '其他'];
+  static const _cannotPickReasons = [
+    '缺書',
+    '人為錯誤揀錯書',
+    '人為錯誤誤按完成',
+    '缺貨',
+    '損壞',
+    '找不到',
+    '其他',
+  ];
 
   Future<({String reason, String? remark})?> _showCannotPickDialog() async {
     String selected = _cannotPickReasons.first;
