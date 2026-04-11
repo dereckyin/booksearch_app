@@ -1220,6 +1220,9 @@ class _CannotPickOrderDetailScreenState extends State<_CannotPickOrderDetailScre
             abnormalRemark: prev.abnormalRemark,
             abnormalUpdatedAt: prev.abnormalUpdatedAt,
             abnormalUpdatedBy: prev.abnormalUpdatedBy,
+            seqNum: prev.seqNum,
+            overlayUrl: prev.overlayUrl,
+            overlayDataUrl: prev.overlayDataUrl,
           );
         }
       });
@@ -1650,6 +1653,9 @@ class _CannotPickAbnormalDetailScreenState extends State<_CannotPickAbnormalDeta
             abnormalRemark: abnormalRemark.isEmpty ? null : abnormalRemark,
             abnormalUpdatedAt: DateTime.now(),
             abnormalUpdatedBy: prev.abnormalUpdatedBy,
+            seqNum: prev.seqNum,
+            overlayUrl: prev.overlayUrl,
+            overlayDataUrl: prev.overlayDataUrl,
           );
         }
       });
@@ -1680,6 +1686,10 @@ class _CannotPickAbnormalDetailScreenState extends State<_CannotPickAbnormalDeta
           final abnormalResult = _abnormalById[r.id];
           final needsRemark = abnormalResult == '其他';
           final imageUrl = _resolveImageUrl(r);
+          final who = (r.reportedByName != null && r.reportedByName!.isNotEmpty)
+              ? r.reportedByName!
+              : (r.reportedByPhone ?? '-');
+          final qtyText = r.qty == null ? '-' : '${r.qty}';
           return Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -1746,6 +1756,32 @@ class _CannotPickAbnormalDetailScreenState extends State<_CannotPickAbnormalDeta
                       ),
                     ],
                   ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      _abnormalShelfChip(
+                        context,
+                        '櫃號',
+                        r.rkId.isEmpty ? '-' : r.rkId,
+                      ),
+                      _abnormalShelfChip(
+                        context,
+                        '揀不到原因',
+                        r.reason.isEmpty ? '-' : r.reason,
+                      ),
+                      _abnormalShelfChip(context, '回報者', who),
+                      _abnormalShelfChip(context, '數量', qtyText),
+                      if (r.seqNum != null && r.seqNum!.isNotEmpty)
+                        _abnormalShelfChip(context, '左至右第', r.seqNum!),
+                    ],
+                  ),
+                  if (r.remark != null && r.remark!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('備註：${r.remark}'),
+                  ],
+                  _abnormalShelfSlotImage(context, r),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     initialValue: abnormalResult,
@@ -1805,6 +1841,96 @@ class _CannotPickAbnormalDetailScreenState extends State<_CannotPickAbnormalDeta
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _abnormalShelfChip(BuildContext context, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label：$value',
+        style: Theme.of(context).textTheme.labelMedium,
+      ),
+    );
+  }
+
+  Widget _abnormalShelfSlotImage(BuildContext context, CannotPickReport r) {
+    ImageProvider? provider;
+    final ou = r.overlayUrl?.trim() ?? '';
+    final od = r.overlayDataUrl?.trim() ?? '';
+    if (ou.isNotEmpty) {
+      final base = ApiConfig().uploadBase;
+      final uri = ou.startsWith('http')
+          ? Uri.parse(ou)
+          : Uri.parse(base).resolve(ou);
+      provider = NetworkImage(uri.toString());
+    } else if (od.isNotEmpty) {
+      try {
+        final data = UriData.parse(od);
+        provider = MemoryImage(data.contentAsBytes());
+      } catch (_) {}
+    }
+    if (provider == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '櫃位現場圖',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: provider is NetworkImage
+                  ? Image.network(
+                      provider.url,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Container(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          alignment: Alignment.center,
+                          child: const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.image_not_supported),
+                      ),
+                    )
+                  : Image(
+                      image: provider,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.image_not_supported),
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }
