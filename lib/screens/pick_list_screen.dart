@@ -1035,15 +1035,25 @@ class _CannotPickTodayTab extends StatelessWidget {
                     return Card(
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => _CannotPickOrderDetailScreen(
-                                group: g,
-                                service: service,
+                        onTap: () async {
+                          final movedToAbnormal =
+                              await Navigator.of(context).push<bool>(
+                                MaterialPageRoute(
+                                  builder: (_) => _CannotPickOrderDetailScreen(
+                                    group: g,
+                                    service: service,
+                                  ),
+                                ),
+                              );
+                          if (movedToAbnormal == true) {
+                            await onRefresh();
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('已移至分貨異常分頁'),
                               ),
-                            ),
-                          );
+                            );
+                          }
                         },
                         child: Padding(
                           padding: const EdgeInsets.all(12),
@@ -1213,6 +1223,10 @@ class _CannotPickOrderDetailScreenState extends State<_CannotPickOrderDetailScre
           );
         }
       });
+      if (_abnormalRoutingResultSet.contains(handling)) {
+        Navigator.of(context).pop(true);
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已更新處理結果')));
