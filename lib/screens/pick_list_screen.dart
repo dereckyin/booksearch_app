@@ -215,14 +215,12 @@ class _PickListScreenState extends State<PickListScreen>
     final abnormal = await _service.fetchCannotPickAbnormal(all: true).catchError(
       (_) => <CannotPickReport>[],
     );
-    // 兼容：有些「找不到回報」會直接以 reason=缺書/人為錯誤... 上報，
+    // 兼容：有些案件會直接以找不到原因或第一層處理結果進到分貨異常，
     // 後端若尚未納入 /cannot-pick/abnormal，前端仍要能在「分貨異常」看到。
     final today = await _service.fetchCannotPickToday(all: true).catchError(
       (_) => <CannotPickReport>[],
     );
-    final todayExtra = today
-        .where((r) => _directToAbnormalReasons.contains(r.reason.trim()))
-        .toList();
+    final todayExtra = today.where(_shouldRouteToAbnormal).toList();
 
     final byId = <int, CannotPickReport>{};
     for (final r in [...abnormal, ...todayExtra]) {
@@ -928,11 +926,20 @@ class _PickListScreenState extends State<PickListScreen>
   }
 }
 
-const Set<String> _directToAbnormalReasons = {
+const List<String> _abnormalRoutingResults = [
   '缺書',
   '人為錯誤揀錯書',
   '人為錯誤誤按完成',
-};
+];
+const Set<String> _abnormalRoutingResultSet = {..._abnormalRoutingResults};
+const Set<String> _directToAbnormalReasons = _abnormalRoutingResultSet;
+
+bool _shouldRouteToAbnormal(CannotPickReport report) {
+  final reason = report.reason.trim();
+  final handlingResult = report.handlingResult?.trim() ?? '';
+  return _directToAbnormalReasons.contains(reason) ||
+      _directToAbnormalReasons.contains(handlingResult);
+}
 
 class _SummaryData {
   _SummaryData({this.summary, this.myToday});
@@ -988,9 +995,7 @@ class _CannotPickTodayTab extends StatelessWidget {
 
         final items =
             (snapshot.data ?? [])
-                .where(
-                  (r) => !_directToAbnormalReasons.contains(r.reason.trim()),
-                )
+                .where((r) => !_shouldRouteToAbnormal(r))
                 .toList();
         final grouped = <String, List<CannotPickReport>>{};
         for (final r in items) {
@@ -1089,12 +1094,8 @@ class _CannotPickOrderGroup {
       reports.isEmpty ? DateTime.fromMillisecondsSinceEpoch(0) : reports.first.reportedAt;
 }
 
-const List<String> _handlingResults = ['有書', '缺書', '人為錯誤揀錯書', '人為錯誤誤按完成'];
-const Set<String> _handlingNeedsCorrectLogcode = {
-  '缺書',
-  '人為錯誤揀錯書',
-  '人為錯誤誤按完成',
-};
+const List<String> _handlingResults = ['有書', ..._abnormalRoutingResults];
+const Set<String> _handlingNeedsCorrectLogcode = _abnormalRoutingResultSet;
 const List<String> _abnormalResults = ['書在儲位上', '上架錯誤', '遺失', '損壞無庫存', '其他'];
 
 class _CannotPickOrderDetailScreen extends StatefulWidget {
@@ -3385,9 +3386,6 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   }
 
   static const _cannotPickReasons = [
-    '缺書',
-    '人為錯誤揀錯書',
-    '人為錯誤誤按完成',
     '缺貨',
     '損壞',
     '找不到',
