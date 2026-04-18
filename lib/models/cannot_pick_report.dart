@@ -1,3 +1,17 @@
+/// API 揀貨報表時間：可為 ISO8601，或易讀字串 `YYYY-MM-DD HH:MM:SS`（語意 GMT+8）。
+DateTime? _parsePickingReportDateTime(dynamic raw) {
+  if (raw == null) return null;
+  final s = raw.toString().trim();
+  if (s.isEmpty) return null;
+  final direct = DateTime.tryParse(s);
+  if (direct != null) return direct;
+  final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$').firstMatch(s);
+  if (m == null) return null;
+  return DateTime.tryParse(
+    '${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+08:00',
+  );
+}
+
 class CannotPickReport {
   CannotPickReport({
     required this.id,
@@ -74,7 +88,7 @@ class CannotPickReport {
     );
     final remarkRaw = '${json['remark'] ?? ''}'.trim();
     final reportedAtRaw = json['reported_at'] ?? json['reportedAt'];
-    final reportedAt = DateTime.tryParse('${reportedAtRaw ?? ''}') ??
+    final reportedAt = _parsePickingReportDateTime(reportedAtRaw) ??
         DateTime.fromMillisecondsSinceEpoch(0);
 
     final byName = '${json['reported_by_name'] ?? json['reportedByName'] ?? ''}'
@@ -120,7 +134,7 @@ class CannotPickReport {
         '${json['abnormal_remark'] ?? json['abnormalRemark'] ?? ''}'.trim();
     final abnormalUpdatedAtRaw =
         json['abnormal_updated_at'] ?? json['abnormalUpdatedAt'];
-    final abnormalUpdatedAt = DateTime.tryParse('${abnormalUpdatedAtRaw ?? ''}');
+    final abnormalUpdatedAt = _parsePickingReportDateTime(abnormalUpdatedAtRaw);
     final abnormalUpdatedByRaw =
         '${json['abnormal_updated_by'] ?? json['abnormalUpdatedBy'] ?? ''}'
             .trim();
