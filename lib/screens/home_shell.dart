@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../config/build_version.dart';
 import '../models/auth_user.dart';
 import '../services/picklist_service.dart';
 import 'capture_screen.dart';
@@ -26,34 +27,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  static const String _buildDateRaw = String.fromEnvironment(
-    'BUILD_DATE',
-    defaultValue: '',
-  );
-  static const String _buildSeqRaw = String.fromEnvironment(
-    'BUILD_SEQ',
-    defaultValue: '01',
-  );
-
-  static String _normalizedBuildDate() {
-    final digits = _buildDateRaw.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length == 8) return digits;
-    return 'dev';
-  }
-
-  static String _normalizedBuildSeq() {
-    final digits = _buildSeqRaw.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return '01';
-    final value = int.tryParse(digits);
-    if (value == null || value <= 0) return '01';
-    return value.toString().padLeft(2, '0');
-  }
-
-  static String _buildDateVersion() {
-    return '${_normalizedBuildDate()}_${_normalizedBuildSeq()}';
-  }
-
-  final String _appVersion = _buildDateVersion();
+  static final String _appVersion = appBuildVersion;
   int _index = 0;
   int _pickListCount = 0;
   bool _captureUiVisible = false;
