@@ -26,10 +26,20 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  static const String _buildDateRaw = String.fromEnvironment(
+    'BUILD_DATE',
+    defaultValue: '',
+  );
   static const String _buildSeqRaw = String.fromEnvironment(
     'BUILD_SEQ',
     defaultValue: '01',
   );
+
+  static String _normalizedBuildDate() {
+    final digits = _buildDateRaw.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length == 8) return digits;
+    return 'dev';
+  }
 
   static String _normalizedBuildSeq() {
     final digits = _buildSeqRaw.replaceAll(RegExp(r'[^0-9]'), '');
@@ -40,11 +50,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   static String _buildDateVersion() {
-    final now = DateTime.now();
-    final y = now.year.toString();
-    final m = now.month.toString().padLeft(2, '0');
-    final d = now.day.toString().padLeft(2, '0');
-    return '$y$m${d}_${_normalizedBuildSeq()}';
+    return '${_normalizedBuildDate()}_${_normalizedBuildSeq()}';
   }
 
   final String _appVersion = _buildDateVersion();
