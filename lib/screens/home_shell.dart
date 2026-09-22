@@ -7,6 +7,7 @@ import '../services/picklist_service.dart';
 import 'capture_screen.dart';
 import 'pick_list_screen.dart';
 import 'upload_gallery_screen.dart';
+import 'virtual_bin_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({
@@ -33,6 +34,7 @@ class _HomeShellState extends State<HomeShell> {
   bool _captureUiVisible = false;
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
+  static const _virtualBinTabIndex = 3;
   static const _captureOrientations = [
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
@@ -74,7 +76,7 @@ class _HomeShellState extends State<HomeShell> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('揀貨單'),
+            Text(_index == _virtualBinTabIndex ? '分貨' : '揀貨單'),
             const SizedBox(width: 6),
             Text(
               'v$_appVersion',
@@ -120,6 +122,7 @@ class _HomeShellState extends State<HomeShell> {
             isActive: _index == _captureTabIndex,
           ),
           UploadGalleryScreen(),
+          VirtualBinScreen(pickListService: widget.pickListService),
         ],
       ),
       bottomNavigationBar: _index == _captureTabIndex && !_captureUiVisible
@@ -153,6 +156,11 @@ class _HomeShellState extends State<HomeShell> {
                   icon: Icon(Icons.cloud_upload_outlined),
                   selectedIcon: Icon(Icons.cloud_upload),
                   label: '上傳圖檔',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.grid_view_outlined),
+                  selectedIcon: Icon(Icons.grid_view),
+                  label: '分貨',
                 ),
               ],
             ),
