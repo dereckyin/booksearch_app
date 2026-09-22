@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/virtual_bin.dart';
+import '../services/kit_tts_service.dart';
 import '../services/virtual_bin_service.dart';
 import 'barcode_camera_scan_screen.dart';
 
@@ -23,6 +24,7 @@ class VirtualBinWorkScreen extends StatefulWidget {
 class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
   final _scanController = TextEditingController();
   final _scanFocus = FocusNode();
+  final _kitTts = KitTtsService();
 
   VirtualBinBatchDetail? _batch;
   bool _loading = true;
@@ -46,6 +48,7 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
 
   @override
   void dispose() {
+    _kitTts.dispose();
     _scanController.dispose();
     _scanFocus.dispose();
     super.dispose();
@@ -92,10 +95,11 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
       if (!mounted) return;
 
       HapticFeedback.mediumImpact();
+      final kitLabel = result.displayKit.isNotEmpty
+          ? result.displayKit
+          : result.kitNo;
       setState(() {
-        _displayKit = result.displayKit.isNotEmpty
-            ? result.displayKit
-            : result.kitNo;
+        _displayKit = kitLabel;
         _megText = result.message.isNotEmpty
             ? result.message
             : (result.prodNm.isNotEmpty ? result.prodNm : '掃碼成功');
@@ -115,6 +119,13 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
           );
         }
       });
+
+      // 語音播報格位：第 N 櫃（齊櫃時改唸「已完成」）
+      if (result.binCompleted) {
+        await _kitTts.speakKitCompleted(kitLabel);
+      } else {
+        await _kitTts.speakKit(kitLabel);
+      }
 
       if (result.binCompleted || result.batchCompleted) {
         HapticFeedback.heavyImpact();
