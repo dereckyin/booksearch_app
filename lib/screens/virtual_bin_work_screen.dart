@@ -114,6 +114,7 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
             remainQty: _batch!.remainQty,
             difQty: _batch!.difQty,
             batchCompleted: result.batchCompleted,
+            hasShortage: result.hasShortage || _batch!.hasShortage,
             bins: _batch!.bins,
             kitBoard: result.kitBoard,
           );
@@ -327,6 +328,47 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
     }
   }
 
+  Future<void> _toggleShortage() async {
+    final currently = _batch?.hasShortage ?? false;
+    final mark = !currently;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(mark ? '標記缺書' : '取消缺書'),
+        content: Text(
+          mark
+              ? '將本批標為缺書異常，清單會以紅色顯示「缺書」。'
+              : '取消缺書／清除掃描異常標記？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(mark ? '標記' : '清除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await widget.service.setShortage(widget.sdNo, shortage: mark);
+      if (!mounted) return;
+      await _loadBatch();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mark ? '已標記缺書' : '已取消缺書標記')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
   Color _slotColor(String flg) {
     switch (flg) {
       case 'Y':
@@ -347,6 +389,16 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
       appBar: AppBar(
         title: Text('分貨 ${widget.sdNo}'),
         actions: [
+          IconButton(
+            tooltip: (_batch?.hasShortage ?? false) ? '取消缺書標記' : '標記缺書',
+            icon: Icon(
+              (_batch?.hasShortage ?? false)
+                  ? Icons.report
+                  : Icons.report_gmailerrorred_outlined,
+              color: (_batch?.hasShortage ?? false) ? Colors.red : null,
+            ),
+            onPressed: _loading ? null : _toggleShortage,
+          ),
           IconButton(
             tooltip: '重新載入',
             icon: const Icon(Icons.refresh),

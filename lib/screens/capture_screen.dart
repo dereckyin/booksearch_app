@@ -67,13 +67,17 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!widget.isActive) return;
-    if (state == AppLifecycleState.inactive) {
+    // 非拍照 tab 時相機應已釋放；在拍照 tab 離開前景也立即關相機，避免過熱
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
       if (_cameraController != null) {
         _disposeCamera();
       }
-    } else if (state == AppLifecycleState.resumed) {
-      // Returning from native pages (e.g. cropper) may leave controller null.
+      return;
+    }
+    if (!widget.isActive) return;
+    if (state == AppLifecycleState.resumed) {
       if (_cameraController == null || !_cameraController!.value.isInitialized) {
         _resumeCameraFlow();
       }

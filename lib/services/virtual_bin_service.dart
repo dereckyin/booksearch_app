@@ -56,7 +56,7 @@ class VirtualBinService {
   }
 
   /// GET /batches
-  Future<List<VirtualBinBatchSummary>> fetchBatches({int limit = 30}) async {
+  Future<List<VirtualBinBatchSummary>> fetchBatches({int limit = 100}) async {
     final uri = Uri.parse('$_base/batches').replace(
       queryParameters: {'limit': '$limit'},
     );
@@ -136,6 +136,22 @@ class VirtualBinService {
       '$_base/batches/${Uri.encodeComponent(sdNo)}/reset',
     );
     final resp = await _client.post(uri, headers: _headers());
+    _checkUnauthorized(resp);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception(_detailMessage(resp));
+    }
+  }
+
+  /// POST /batches/{sd_no}/shortage — 標記／取消缺書
+  Future<void> setShortage(String sdNo, {required bool shortage}) async {
+    final uri = Uri.parse(
+      '$_base/batches/${Uri.encodeComponent(sdNo)}/shortage',
+    );
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({'shortage': shortage}),
+    );
     _checkUnauthorized(resp);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw Exception(_detailMessage(resp));

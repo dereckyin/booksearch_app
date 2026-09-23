@@ -10,6 +10,10 @@ class VirtualBinBatchSummary {
     this.ttlMustQty = 0,
     this.kitCnt = 0,
     this.mustQty = 0,
+    this.gotQty = 0,
+    this.batchCompleted = false,
+    this.hasShortage = false,
+    this.displayStatus = 'pending',
     this.crtTime,
   });
 
@@ -22,6 +26,11 @@ class VirtualBinBatchSummary {
   final int ttlMustQty;
   final int kitCnt;
   final int mustQty;
+  final int gotQty;
+  final bool batchCompleted;
+  final bool hasShortage;
+  /// pending / in_progress / completed / shortage
+  final String displayStatus;
   final String? crtTime;
 
   factory VirtualBinBatchSummary.fromJson(Map<String, dynamic> json) {
@@ -36,6 +45,10 @@ class VirtualBinBatchSummary {
       ttlMustQty: asInt(json['ttl_must_qty']),
       kitCnt: asInt(json['kit_cnt']),
       mustQty: asInt(json['must_qty']),
+      gotQty: asInt(json['got_qty']),
+      batchCompleted: json['batch_completed'] == true,
+      hasShortage: json['has_shortage'] == true,
+      displayStatus: '${json['display_status'] ?? 'pending'}',
       crtTime: json['crt_time']?.toString(),
     );
   }
@@ -126,6 +139,7 @@ class VirtualBinBatchDetail {
     this.remainQty = 0,
     this.difQty = 0,
     this.batchCompleted = false,
+    this.hasShortage = false,
     this.bins = const [],
     this.kitBoard = const [],
   });
@@ -137,6 +151,7 @@ class VirtualBinBatchDetail {
   final int remainQty;
   final int difQty;
   final bool batchCompleted;
+  final bool hasShortage;
   final List<VirtualBinProgress> bins;
   final List<VirtualBinKitSlot> kitBoard;
 
@@ -164,6 +179,7 @@ class VirtualBinBatchDetail {
       remainQty: asInt(json['remain_qty']),
       difQty: asInt(json['dif_qty']),
       batchCompleted: json['batch_completed'] == true,
+      hasShortage: json['has_shortage'] == true,
       bins: bins,
       kitBoard: kitBoard,
     );
@@ -285,6 +301,7 @@ class VirtualBinScanResult {
     this.remain = 0,
     this.binCompleted = false,
     this.batchCompleted = false,
+    this.hasShortage = false,
     this.message = '',
     this.kitBoard = const [],
   });
@@ -302,6 +319,7 @@ class VirtualBinScanResult {
   final int remain;
   final bool binCompleted;
   final bool batchCompleted;
+  final bool hasShortage;
   final String message;
   final List<VirtualBinKitSlot> kitBoard;
 
@@ -328,6 +346,7 @@ class VirtualBinScanResult {
       remain: asInt(json['remain']),
       binCompleted: json['bin_completed'] == true,
       batchCompleted: json['batch_completed'] == true,
+      hasShortage: json['has_shortage'] == true,
       message: '${json['message'] ?? ''}',
       kitBoard: kitBoard,
     );
