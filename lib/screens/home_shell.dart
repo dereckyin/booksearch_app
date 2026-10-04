@@ -6,6 +6,7 @@ import '../models/auth_user.dart';
 import '../services/picklist_service.dart';
 import 'capture_screen.dart';
 import 'pick_list_screen.dart';
+import 'putaway_screen.dart';
 import 'upload_gallery_screen.dart';
 import 'virtual_bin_screen.dart';
 
@@ -35,6 +36,7 @@ class _HomeShellState extends State<HomeShell> {
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
   static const _virtualBinTabIndex = 3;
+  static const _putawayTabIndex = 4;
   static const _captureOrientations = [
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
@@ -76,7 +78,13 @@ class _HomeShellState extends State<HomeShell> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_index == _virtualBinTabIndex ? '分貨' : '揀貨單'),
+            Text(
+              _index == _virtualBinTabIndex
+                  ? '分貨'
+                  : _index == _putawayTabIndex
+                      ? '上架'
+                      : '揀貨單',
+            ),
             const SizedBox(width: 6),
             Text(
               'v$_appVersion',
@@ -123,6 +131,7 @@ class _HomeShellState extends State<HomeShell> {
           ),
           UploadGalleryScreen(),
           VirtualBinScreen(pickListService: widget.pickListService),
+          PutawayScreen(pickListService: widget.pickListService),
         ],
       ),
       bottomNavigationBar: _index == _captureTabIndex && !_captureUiVisible
@@ -161,6 +170,11 @@ class _HomeShellState extends State<HomeShell> {
                   icon: Icon(Icons.grid_view_outlined),
                   selectedIcon: Icon(Icons.grid_view),
                   label: '分貨',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.move_to_inbox_outlined),
+                  selectedIcon: Icon(Icons.move_to_inbox),
+                  label: '上架',
                 ),
               ],
             ),
