@@ -142,6 +142,44 @@ class VirtualBinService {
     }
   }
 
+  /// POST /batches/{sd_no}/finish — 完成分貨並回寫 MIS（對齊 E123 完成）
+  /// 有差異且未 force 時丟 [VirtualBinFinishConfirmException]。
+  Future<String> finish(String sdNo, {bool force = false}) async {
+    final uri = Uri.parse(
+      '$_base/batches/${Uri.encodeComponent(sdNo)}/finish',
+    );
+    final resp = await _client.post(
+      uri,
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({'force': force}),
+    );
+    _checkUnauthorized(resp);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      Map<String, dynamic>? d;
+      try {
+        final decoded = jsonDecode(resp.body);
+        if (decoded is Map && decoded['detail'] is Map) {
+          d = Map<String, dynamic>.from(decoded['detail'] as Map);
+        }
+      } catch (_) {}
+      if (d != null && d['need_confirm'] == true) {
+        int asInt(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+        throw VirtualBinFinishConfirmException(
+          message: '${d['message'] ?? '應揀與實揀有差異'}',
+          mustQty: asInt(d['ttl_must_pick_qty']),
+          realQty: asInt(d['ttl_real_pick_qty']),
+          difQty: asInt(d['ttl_dif_pick_qty']),
+        );
+      }
+      throw Exception(_detailMessage(resp));
+    }
+    final decoded = jsonDecode(resp.body);
+    if (decoded is Map && decoded['message'] != null) {
+      return '${decoded['message']}';
+    }
+    return '已完成分貨';
+  }
+
   /// POST /batches/{sd_no}/shortage — 標記／取消缺書
   Future<void> setShortage(String sdNo, {required bool shortage}) async {
     final uri = Uri.parse(

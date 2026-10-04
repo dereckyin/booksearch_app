@@ -115,6 +115,11 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
             difQty: _batch!.difQty,
             batchCompleted: result.batchCompleted,
             hasShortage: result.hasShortage || _batch!.hasShortage,
+            misPickFlg: _batch!.misPickFlg,
+            misPickUser: _batch!.misPickUser,
+            misFinished: _batch!.misFinished,
+            canFinish: _batch!.canFinish,
+            finishBlockReason: _batch!.finishBlockReason,
             bins: _batch!.bins,
             kitBoard: result.kitBoard,
           );
@@ -128,13 +133,18 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
         await _kitTts.speakKit(kitLabel);
       }
 
+      var finishNow = false;
       if (result.binCompleted || result.batchCompleted) {
         HapticFeedback.heavyImpact();
-        await _showCompletionDialog(result);
+        finishNow = await _showCompletionDialog(result);
       }
 
       await _loadBatch();
       if (!mounted) return;
+      if (finishNow && (_batch?.canFinish ?? false)) {
+        await _finishBatch();
+        return;
+      }
       _refocusScan();
     } on VirtualBinScanException catch (e) {
       if (!mounted) return;
@@ -177,22 +187,134 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
     }
   }
 
-  Future<void> _showCompletionDialog(VirtualBinScanResult result) async {
+  /// 回傳 true 表示使用者選擇立即「完成分貨」回寫 MIS。
+  Future<bool> _showCompletionDialog(VirtualBinScanResult result) async {
     final title = result.batchCompleted ? '本批分貨完成' : '格位已完成';
-    await showDialog<void>(
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.green.shade50,
         title: Text(title, style: TextStyle(color: Colors.green.shade900)),
-        content: Text(result.message),
+        content: Text(
+          result.batchCompleted
+              ? '${result.message}\n\n請按「完成分貨」回寫 MIS。'
+              : result.message,
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('繼續'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(result.batchCompleted ? '稍後' : '繼續'),
+          ),
+          if (result.batchCompleted)
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('完成分貨'),
+            ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  /// 對齊 E123100M「完成」：回寫 PICK_FLG=Y／PICK_QTY／TTL_*。
+  Future<void> _finishBatch() async {
+    final batch = _batch;
+    if (batch == null) return;
+    final dif = batch.mustQty - batch.gotQty;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('完成分貨'),
+        content: Text(
+          '揀貨單 ${widget.sdNo}\n'
+          '應分 ${batch.mustQty}／實分 ${batch.gotQty}／差異 $dif\n\n'
+          '${dif != 0 ? '⚠ 尚有 $dif 本未分（缺書），仍要完成？\n\n' : ''}'
+          '完成後將回寫 MIS（分貨完成），本批不可再刷讀。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: dif != 0
+                ? FilledButton.styleFrom(backgroundColor: Colors.red.shade700)
+                : null,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(dif != 0 ? '確定完成（有差異）' : '確定完成'),
           ),
         ],
       ),
     );
+    if (ok != true || !mounted) {
+      _refocusScan();
+      return;
+    }
+    setState(() => _scanning = true);
+    try {
+      String msg;
+      try {
+        msg = await widget.service.finish(widget.sdNo, force: dif != 0);
+      } on VirtualBinFinishConfirmException catch (e) {
+        if (!mounted) return;
+        setState(() => _scanning = false);
+        final again = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('應分與實分有差異'),
+            content: Text(
+              '${e.message}\n應分 ${e.mustQty}／實分 ${e.realQty}／差異 ${e.difQty}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red.shade700,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('確定完成'),
+              ),
+            ],
+          ),
+        );
+        if (again != true || !mounted) {
+          _refocusScan();
+          return;
+        }
+        setState(() => _scanning = true);
+        msg = await widget.service.finish(widget.sdNo, force: true);
+      }
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _megText = msg;
+        _megOk = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+      await _loadBatch();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _megText = e.toString();
+        _megOk = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      _refocusScan();
+    }
   }
 
   Future<void> _openBinDetail(String kitNo) async {
@@ -380,12 +502,79 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
     }
   }
 
+  Widget? _buildFinishBar(VirtualBinBatchDetail? batch) {
+    if (batch == null) return null;
+    if (batch.misFinished) {
+      return SafeArea(
+        child: Container(
+          color: Colors.green.shade100,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.verified, color: Colors.green.shade800),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'MIS 已分貨完成'
+                  '${batch.misPickUser.isNotEmpty ? '（${batch.misPickUser}）' : ''}',
+                  style: TextStyle(
+                    color: Colors.green.shade900,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!batch.canFinish && batch.finishBlockReason.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  batch.finishBlockReason,
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                ),
+              ),
+            SizedBox(
+              height: 48,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: batch.batchCompleted
+                      ? Colors.green.shade700
+                      : Colors.orange.shade800,
+                ),
+                onPressed: (!batch.canFinish || _scanning || _loading)
+                    ? null
+                    : _finishBatch,
+                icon: const Icon(Icons.task_alt),
+                label: const Text(
+                  '完成分貨（回寫 MIS）',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final batch = _batch;
     final focused = _scanFocus.hasFocus;
+    final scanLocked = batch?.misFinished ?? false;
 
     return Scaffold(
+      bottomNavigationBar: _buildFinishBar(batch),
       appBar: AppBar(
         title: Text('分貨 ${widget.sdNo}'),
         actions: [
@@ -407,7 +596,7 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
           IconButton(
             tooltip: '清除進度',
             icon: const Icon(Icons.delete_outline),
-            onPressed: _confirmReset,
+            onPressed: scanLocked ? null : _confirmReset,
           ),
         ],
       ),
@@ -434,7 +623,9 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
                     width: double.infinity,
                     height: 48,
                     child: FilledButton.icon(
-                      onPressed: (_scanning || _loading) ? null : _openCameraScan,
+                      onPressed: (_scanning || _loading || scanLocked)
+                          ? null
+                          : _openCameraScan,
                       icon: const Icon(Icons.photo_camera, size: 26),
                       label: const Text(
                         '開啟相機掃碼',
@@ -447,7 +638,7 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
                     controller: _scanController,
                     focusNode: _scanFocus,
                     autofocus: false,
-                    enabled: !_scanning && !_loading,
+                    enabled: !_scanning && !_loading && !scanLocked,
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,

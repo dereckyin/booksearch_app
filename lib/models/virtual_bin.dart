@@ -140,6 +140,11 @@ class VirtualBinBatchDetail {
     this.difQty = 0,
     this.batchCompleted = false,
     this.hasShortage = false,
+    this.misPickFlg = '',
+    this.misPickUser = '',
+    this.misFinished = false,
+    this.canFinish = false,
+    this.finishBlockReason = '',
     this.bins = const [],
     this.kitBoard = const [],
   });
@@ -152,6 +157,13 @@ class VirtualBinBatchDetail {
   final int difQty;
   final bool batchCompleted;
   final bool hasShortage;
+  /// SP_SD_MAIN.PICK_FLG（W=分貨中、Y=已完成）
+  final String misPickFlg;
+  final String misPickUser;
+  final bool misFinished;
+  /// 可按「完成分貨」回寫 MIS
+  final bool canFinish;
+  final String finishBlockReason;
   final List<VirtualBinProgress> bins;
   final List<VirtualBinKitSlot> kitBoard;
 
@@ -180,6 +192,11 @@ class VirtualBinBatchDetail {
       difQty: asInt(json['dif_qty']),
       batchCompleted: json['batch_completed'] == true,
       hasShortage: json['has_shortage'] == true,
+      misPickFlg: '${json['mis_pick_flg'] ?? ''}',
+      misPickUser: '${json['mis_pick_user'] ?? ''}',
+      misFinished: json['mis_finished'] == true,
+      canFinish: json['can_finish'] == true,
+      finishBlockReason: '${json['finish_block_reason'] ?? ''}',
       bins: bins,
       kitBoard: kitBoard,
     );
@@ -351,6 +368,24 @@ class VirtualBinScanResult {
       kitBoard: kitBoard,
     );
   }
+}
+
+/// 完成分貨有差異需確認（POST .../finish 回 409 need_confirm）
+class VirtualBinFinishConfirmException implements Exception {
+  VirtualBinFinishConfirmException({
+    required this.message,
+    this.mustQty = 0,
+    this.realQty = 0,
+    this.difQty = 0,
+  });
+
+  final String message;
+  final int mustQty;
+  final int realQty;
+  final int difQty;
+
+  @override
+  String toString() => message;
 }
 
 /// 掃碼失敗（對齊 E123「未發現相符合之待分貨商品」）
