@@ -35,8 +35,7 @@ class _HomeShellState extends State<HomeShell> {
   bool _captureUiVisible = false;
   static const _pickListTabIndex = 0;
   static const _captureTabIndex = 1;
-  static const _virtualBinTabIndex = 3;
-  static const _putawayTabIndex = 4;
+  static const _tabTitles = ['揀貨單', '拍照', '上傳圖檔', '分貨', '上架'];
   static const _captureOrientations = [
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
@@ -78,13 +77,7 @@ class _HomeShellState extends State<HomeShell> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              _index == _virtualBinTabIndex
-                  ? '分貨'
-                  : _index == _putawayTabIndex
-                      ? '上架'
-                      : '揀貨單',
-            ),
+            Text(_tabTitles[_index]),
             const SizedBox(width: 6),
             Text(
               'v$_appVersion',
@@ -95,7 +88,12 @@ class _HomeShellState extends State<HomeShell> {
         actions: [
           if (widget.user != null)
             Padding(
-              padding: const EdgeInsets.only(left: 8, right: 4, top: 14, bottom: 14),
+              padding: const EdgeInsets.only(
+                left: 8,
+                right: 4,
+                top: 14,
+                bottom: 14,
+              ),
               child: Center(
                 child: Text(
                   widget.user!.displayName,
@@ -136,47 +134,63 @@ class _HomeShellState extends State<HomeShell> {
       ),
       bottomNavigationBar: _index == _captureTabIndex && !_captureUiVisible
           ? null
-          : NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: (i) async {
-                setState(() {
-                  _index = i;
-                  if (i != _captureTabIndex) {
-                    _captureUiVisible = true;
+          : NavigationBarTheme(
+              data: NavigationBarThemeData(
+                height: 60,
+                labelTextStyle: WidgetStateProperty.resolveWith(
+                  (states) => TextStyle(
+                    fontSize: 12,
+                    fontWeight: states.contains(WidgetState.selected)
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                  ),
+                ),
+                iconTheme: const WidgetStatePropertyAll(
+                  IconThemeData(size: 22),
+                ),
+              ),
+              child: NavigationBar(
+                selectedIndex: _index,
+                onDestinationSelected: (i) async {
+                  setState(() {
+                    _index = i;
+                    if (i != _captureTabIndex) {
+                      _captureUiVisible = true;
+                    }
+                  });
+                  await _setOrientationForIndex(i);
+                  if (i == _pickListTabIndex) {
+                    await _refreshPickListCount();
                   }
-                });
-                await _setOrientationForIndex(i);
-                if (i == _pickListTabIndex) {
-                  await _refreshPickListCount();
-                }
-              },
-              destinations: [
-                NavigationDestination(
-                  icon: _buildPickListBadgeIcon(context),
-                  selectedIcon: _buildPickListBadgeIcon(context),
-                  label: '揀貨單',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.camera_alt_outlined),
-                  selectedIcon: Icon(Icons.camera_alt),
-                  label: '拍照',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.cloud_upload_outlined),
-                  selectedIcon: Icon(Icons.cloud_upload),
-                  label: '上傳圖檔',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.grid_view_outlined),
-                  selectedIcon: Icon(Icons.grid_view),
-                  label: '分貨',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.move_to_inbox_outlined),
-                  selectedIcon: Icon(Icons.move_to_inbox),
-                  label: '上架',
-                ),
-              ],
+                },
+                destinations: [
+                  NavigationDestination(
+                    icon: _buildPickListBadgeIcon(context),
+                    selectedIcon: _buildPickListBadgeIcon(context),
+                    label: '揀貨',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.camera_alt_outlined),
+                    selectedIcon: Icon(Icons.camera_alt),
+                    label: '拍照',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.cloud_upload_outlined),
+                    selectedIcon: Icon(Icons.cloud_upload),
+                    label: '上傳',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.grid_view_outlined),
+                    selectedIcon: Icon(Icons.grid_view),
+                    label: '分貨',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.move_to_inbox_outlined),
+                    selectedIcon: Icon(Icons.move_to_inbox),
+                    label: '上架',
+                  ),
+                ],
+              ),
             ),
     );
   }
@@ -209,9 +223,9 @@ class _HomeShellState extends State<HomeShell> {
               child: Text(
                 count > 99 ? '99+' : '$count',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onError,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  color: colorScheme.onError,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),
