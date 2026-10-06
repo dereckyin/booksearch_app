@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/putaway.dart';
+import '../services/kit_tts_service.dart';
 import '../services/putaway_service.dart';
 import 'barcode_camera_scan_screen.dart';
 
@@ -24,6 +25,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     with SingleTickerProviderStateMixin {
   final _scanController = TextEditingController();
   final _scanFocus = FocusNode();
+  final _tts = KitTtsService();
   late final TabController _tabs = TabController(length: 2, vsync: this);
 
   PutawaySuDetail? _su;
@@ -47,6 +49,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
 
   @override
   void dispose() {
+    _tts.dispose();
     _scanController.dispose();
     _scanFocus.dispose();
     _tabs.dispose();
@@ -104,7 +107,10 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('確定'),
+          ),
         ],
       ),
     );
@@ -134,6 +140,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
           _busy = false;
         });
         _setMeg('上架儲位 $code，請刷物流條碼', ok: true);
+        _tts.speakRack(code);
       } else {
         if (_rkId.isEmpty) {
           setState(() => _busy = false);
@@ -205,9 +212,13 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, d.realQty > 0 ? d.realQty - 1 : 0),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(ctx, d.realQty > 0 ? d.realQty - 1 : 0),
             child: const Text('－１'),
           ),
           FilledButton(
@@ -227,7 +238,10 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
       await widget.service.adjust(widget.suNo, d.rkId, d.logcode, qty);
       if (!mounted) return;
       setState(() => _busy = false);
-      _setMeg('已修改 ${d.rkId} ${d.prodNm.isEmpty ? d.logcode : d.prodNm} → $qty', ok: true);
+      _setMeg(
+        '已修改 ${d.rkId} ${d.prodNm.isEmpty ? d.logcode : d.prodNm} → $qty',
+        ok: true,
+      );
       await _load();
     } catch (e) {
       if (!mounted) return;
@@ -251,8 +265,14 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
           '完成後送 MIS「進貨上架審核」入庫，本單不可再修改。',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('確定完成')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('確定完成'),
+          ),
         ],
       ),
     );
@@ -283,7 +303,8 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
         ...e.blockers,
         ...e.warnings,
         ...e.clashes.map(
-          (c) => '【${c.clashFlg}】儲位 ${c.rkId}：${c.prodNm}（${c.logcode}）'
+          (c) =>
+              '【${c.clashFlg}】儲位 ${c.rkId}：${c.prodNm}（${c.logcode}）'
               ' 與 ${c.clashProdNm}（${c.clashLogcode}）',
         ),
       ];
@@ -299,7 +320,9 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
             ),
             if (!e.blocked && e.needConfirm)
               FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red.shade700,
+                ),
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text('仍要完成'),
               ),
@@ -326,11 +349,12 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('作廢上架單'),
-        content: Text(
-          '確定作廢上架單 ${widget.suNo}？\n已刷讀的上架紀錄會失效，驗收單將釋放回待上架。',
-        ),
+        content: Text('確定作廢上架單 ${widget.suNo}？\n已刷讀的上架紀錄會失效，驗收單將釋放回待上架。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
             onPressed: () => Navigator.pop(ctx, true),
@@ -360,7 +384,9 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
       final m = su.main;
       return SafeArea(
         child: Container(
-          color: m.statusFlg == 'D' ? Colors.grey.shade300 : Colors.green.shade100,
+          color: m.statusFlg == 'D'
+              ? Colors.grey.shade300
+              : Colors.green.shade100,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Text(
             '${m.statusLabel}'
@@ -411,12 +437,14 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
         final color = done
             ? Colors.green.shade700
             : over
-                ? Colors.red.shade700
-                : Colors.orange.shade800;
+            ? Colors.red.shade700
+            : Colors.orange.shade800;
         return ListTile(
           dense: true,
           leading: Icon(
-            done ? Icons.check_circle : (over ? Icons.error : Icons.radio_button_unchecked),
+            done
+                ? Icons.check_circle
+                : (over ? Icons.error : Icons.radio_button_unchecked),
             color: color,
           ),
           title: Text(
@@ -428,7 +456,11 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
           subtitle: Text('物流條碼 ${s.logcode}　${s.iqcNo}'),
           trailing: Text(
             '${s.realQty}/${s.mustQty}',
-            style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 16),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+            ),
           ),
         );
       },
@@ -475,8 +507,9 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     final focused = _scanFocus.hasFocus;
     final m = su?.main;
 
+    final bottomBar = _buildBottomBar();
+
     return Scaffold(
-      bottomNavigationBar: _buildBottomBar(),
       appBar: AppBar(
         title: Text('上架 ${widget.suNo}'),
         actions: [
@@ -493,140 +526,172 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
             ),
         ],
       ),
-      body: _loading && su == null
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && su == null
-              ? Center(
+      body: Column(
+        children: [
+          Expanded(child: _buildBody(su, m, focused)),
+          // 不用 bottomNavigationBar：iOS 鍵盤會蓋住它，放在 body 才會被推到鍵盤上方
+          if (bottomBar != null) bottomBar,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(PutawaySuDetail? su, PutawaySuSummary? m, bool focused) {
+    return _loading && su == null
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null && su == null
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                  FilledButton(onPressed: _load, child: const Text('重試')),
+                ],
+              ),
+            ),
+          )
+        : Column(
+            children: [
+              if (_editable)
+                Material(
+                  color: focused ? const Color(0xFFFFF59D) : Colors.white,
+                  elevation: 2,
                   child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    child: Row(
                       children: [
-                        Text(_error!, textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        FilledButton(onPressed: _load, child: const Text('重試')),
+                        Expanded(
+                          child: TextField(
+                            controller: _scanController,
+                            focusNode: _scanFocus,
+                            enabled: !_busy,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1,
+                            ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: _rkId.isEmpty ? '刷儲位代碼' : '刷物流條碼／換儲位',
+                              border: const OutlineInputBorder(),
+                              prefixIcon: const Icon(Icons.keyboard),
+                              suffixIcon: _busy
+                                  ? const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    )
+                                  : IconButton(
+                                      tooltip: '送出',
+                                      icon: const Icon(Icons.send),
+                                      onPressed: () =>
+                                          _onScanSubmit(_scanController.text),
+                                    ),
+                            ),
+                            keyboardType: TextInputType.visiblePassword,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'[A-Za-z0-9]'),
+                              ),
+                            ],
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: _onScanSubmit,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          height: 52,
+                          width: 56,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                            ),
+                            onPressed: _busy ? null : _openCamera,
+                            child: const Icon(Icons.photo_camera, size: 28),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                )
-              : Column(
+                ),
+              Container(
+                width: double.infinity,
+                color: _megOk
+                    ? const Color(0xFF000080)
+                    : const Color(0xFFC00C92),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                child: Text(
+                  _megText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _megOk
+                        ? const Color(0xFFFFFF00)
+                        : const Color(0xFF00FFFF),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                color: Colors.grey.shade200,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
                   children: [
-                    if (_editable)
-                      Material(
-                        color: focused ? const Color(0xFFFFF59D) : Colors.white,
-                        elevation: 2,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _scanController,
-                                  focusNode: _scanFocus,
-                                  enabled: !_busy,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 1,
-                                  ),
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    hintText: _rkId.isEmpty ? '刷儲位代碼' : '刷物流條碼／換儲位',
-                                    border: const OutlineInputBorder(),
-                                    prefixIcon: const Icon(Icons.keyboard),
-                                    suffixIcon: _busy
-                                        ? const Padding(
-                                            padding: EdgeInsets.all(12),
-                                            child: SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(strokeWidth: 2),
-                                            ),
-                                          )
-                                        : IconButton(
-                                            tooltip: '送出',
-                                            icon: const Icon(Icons.send),
-                                            onPressed: () => _onScanSubmit(_scanController.text),
-                                          ),
-                                  ),
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: _onScanSubmit,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              SizedBox(
-                                height: 52,
-                                width: 56,
-                                child: FilledButton(
-                                  style: FilledButton.styleFrom(padding: EdgeInsets.zero),
-                                  onPressed: _busy ? null : _openCamera,
-                                  child: const Icon(Icons.photo_camera, size: 28),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    Container(
-                      width: double.infinity,
-                      color: _megOk ? const Color(0xFF000080) : const Color(0xFFC00C92),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      child: Text(
-                        _megText,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: _megOk ? const Color(0xFFFFFF00) : const Color(0xFF00FFFF),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
+                    Text('上架儲位', style: Theme.of(context).textTheme.titleSmall),
+                    Text(
+                      _rkId.isEmpty ? '—' : _rkId,
+                      style: TextStyle(
+                        fontSize: 56,
+                        fontWeight: FontWeight.w900,
+                        height: 1.05,
+                        color: Colors.blue.shade800,
+                        letterSpacing: 2,
                       ),
                     ),
-                    Container(
-                      width: double.infinity,
-                      color: Colors.grey.shade200,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(
-                        children: [
-                          Text('上架儲位', style: Theme.of(context).textTheme.titleSmall),
-                          Text(
-                            _rkId.isEmpty ? '—' : _rkId,
-                            style: TextStyle(
-                              fontSize: 56,
-                              fontWeight: FontWeight.w900,
-                              height: 1.05,
-                              color: Colors.blue.shade800,
-                              letterSpacing: 2,
-                            ),
-                          ),
-                          if (_rkId.isNotEmpty)
-                            Text('此儲位已上架 $_rackQty 本',
-                                style: Theme.of(context).textTheme.bodySmall),
-                          if (m != null)
-                            Text(
-                              '總驗收 ${m.ttlMustQty}／總上架 ${m.ttlRealQty}／總差異 ${m.ttlDifQty}',
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                        ],
+                    if (_rkId.isNotEmpty)
+                      Text(
+                        '此儲位已上架 $_rackQty 本',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ),
-                    TabBar(
-                      controller: _tabs,
-                      tabs: [
-                        Tab(text: '應上架（${su?.sums.length ?? 0}）'),
-                        Tab(text: '儲位明細（${su?.details.length ?? 0}）'),
-                      ],
-                    ),
-                    Expanded(
-                      child: su == null
-                          ? const SizedBox.shrink()
-                          : TabBarView(
-                              controller: _tabs,
-                              children: [_buildSums(su), _buildDetails(su)],
-                            ),
-                    ),
+                    if (m != null)
+                      Text(
+                        '總驗收 ${m.ttlMustQty}／總上架 ${m.ttlRealQty}／總差異 ${m.ttlDifQty}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
                   ],
                 ),
-    );
+              ),
+              TabBar(
+                controller: _tabs,
+                tabs: [
+                  Tab(text: '應上架（${su?.sums.length ?? 0}）'),
+                  Tab(text: '儲位明細（${su?.details.length ?? 0}）'),
+                ],
+              ),
+              Expanded(
+                child: su == null
+                    ? const SizedBox.shrink()
+                    : TabBarView(
+                        controller: _tabs,
+                        children: [_buildSums(su), _buildDetails(su)],
+                      ),
+              ),
+            ],
+          );
   }
 }

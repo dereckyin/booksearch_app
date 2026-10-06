@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_tts/flutter_tts.dart';
 
 /// 分貨格位語音播報（掃碼成功後唸「第 N 櫃」）
@@ -27,6 +29,14 @@ class KitTtsService {
       await _tts.setVolume(1.0);
       await _tts.setPitch(1.0);
       await _tts.awaitSpeakCompletion(false);
+      if (Platform.isIOS) {
+        // iPhone 靜音開關打開時仍要播報
+        await _tts.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.playback,
+          [IosTextToSpeechAudioCategoryOptions.mixWithOthers],
+          IosTextToSpeechAudioMode.defaultMode,
+        );
+      }
     } catch (_) {
       // 裝置無 TTS 引擎時靜默略過
     }
@@ -56,6 +66,21 @@ class KitTtsService {
       await _ready;
       await _tts.stop();
       await _tts.speak('第$n櫃已完成');
+    } catch (_) {}
+  }
+
+  /// 上架儲位逐字唸（P14A12 →「P 1 4 A 1 2」），避免數字被唸成十四
+  Future<void> speakRack(String rkId) async {
+    final chars = rkId
+        .trim()
+        .toUpperCase()
+        .split('')
+        .where((c) => c.trim().isNotEmpty);
+    if (chars.isEmpty) return;
+    try {
+      await _ready;
+      await _tts.stop();
+      await _tts.speak('儲位 ${chars.join(' ')}');
     } catch (_) {}
   }
 

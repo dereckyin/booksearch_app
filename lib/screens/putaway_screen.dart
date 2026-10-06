@@ -271,6 +271,9 @@ class _PutawayScreenState extends State<PutawayScreen> {
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.document_scanner_outlined),
                     ),
+                    keyboardType: TextInputType.visiblePassword,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     textInputAction: TextInputAction.done,
                     onSubmitted: _onScanSubmit,
                     inputFormatters: [
