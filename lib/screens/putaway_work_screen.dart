@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -26,6 +27,10 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   final _scanController = TextEditingController();
   final _scanFocus = FocusNode();
   final _tts = KitTtsService();
+
+  /// Android PDA 掃描槍需要輸入框常駐焦點；iPhone 焦點一回來就跳鍵盤，改由使用者點輸入框才聚焦
+  bool _keepScanFocus = !_isIOS;
+  static final bool _isIOS = defaultTargetPlatform == TargetPlatform.iOS;
   late final TabController _tabs = TabController(length: 2, vsync: this);
 
   PutawaySuDetail? _su;
@@ -87,8 +92,13 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
 
   void _refocusScan() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _editable) _scanFocus.requestFocus();
+      if (mounted && _editable && _keepScanFocus) _scanFocus.requestFocus();
     });
+  }
+
+  void _hideKeyboard() {
+    _keepScanFocus = false;
+    _scanFocus.unfocus();
   }
 
   void _setMeg(String text, {required bool ok}) {
@@ -119,6 +129,10 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   Future<void> _onScanSubmit(String raw) async {
     final code = raw.trim().toUpperCase();
     _scanController.clear();
+    if (code.isEmpty && _isIOS) {
+      _hideKeyboard();
+      return;
+    }
     if (code.isEmpty || _busy || !_editable) {
       _refocusScan();
       return;
@@ -171,6 +185,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   }
 
   Future<void> _openCamera() async {
+    if (_isIOS) _hideKeyboard();
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => BarcodeCameraScanScreen(
@@ -606,8 +621,18 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                             ],
                             textInputAction: TextInputAction.done,
                             onSubmitted: _onScanSubmit,
+                            onTap: () => _keepScanFocus = true,
+                            onTapOutside: _isIOS
+                                ? (_) => _hideKeyboard()
+                                : null,
                           ),
                         ),
+                        if (_isIOS && focused)
+                          IconButton(
+                            tooltip: '收起鍵盤',
+                            icon: const Icon(Icons.keyboard_hide, size: 28),
+                            onPressed: _hideKeyboard,
+                          ),
                         const SizedBox(width: 8),
                         SizedBox(
                           height: 52,
