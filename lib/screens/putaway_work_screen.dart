@@ -28,8 +28,8 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   final _scanFocus = FocusNode();
   final _tts = KitTtsService();
 
-  /// Android PDA 掃描槍需要輸入框常駐焦點；iPhone 焦點一回來就跳鍵盤，改由使用者點輸入框才聚焦
-  bool _keepScanFocus = !_isIOS;
+  /// 掃描框預設聚焦，方便連續刷碼。iPhone 用輸入框旁的按鈕收起鍵盤。
+  bool _keepScanFocus = true;
   static final bool _isIOS = defaultTargetPlatform == TargetPlatform.iOS;
   late final TabController _tabs = TabController(length: 2, vsync: this);
 
@@ -392,7 +392,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     }
   }
 
-  Widget? _buildBottomBar() {
+  Widget? _buildBottomBar(bool keyboardOpen) {
     final su = _su;
     if (su == null) return null;
     if (!su.editable) {
@@ -413,9 +413,14 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     }
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+        padding: EdgeInsets.fromLTRB(
+          12,
+          keyboardOpen ? 2 : 6,
+          12,
+          keyboardOpen ? 4 : 8,
+        ),
         child: SizedBox(
-          height: 48,
+          height: keyboardOpen ? 40 : 48,
           child: FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: su.main.ttlDifQty == 0
@@ -521,8 +526,9 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     final su = _su;
     final focused = _scanFocus.hasFocus;
     final m = su?.main;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
-    final bottomBar = _buildBottomBar();
+    final bottomBar = _buildBottomBar(keyboardOpen);
 
     return Scaffold(
       appBar: AppBar(
@@ -573,9 +579,9 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
               if (_editable)
                 Material(
                   color: focused ? const Color(0xFFFFF59D) : Colors.white,
-                  elevation: 2,
+                  elevation: 1,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
                     child: Row(
                       children: [
                         Expanded(
@@ -584,21 +590,29 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                             focusNode: _scanFocus,
                             enabled: !_busy,
                             style: const TextStyle(
-                              fontSize: 20,
+                              fontSize: 18,
                               fontWeight: FontWeight.w600,
                               letterSpacing: 1,
                             ),
                             decoration: InputDecoration(
                               isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 8,
+                              ),
                               hintText: _rkId.isEmpty ? '刷儲位代碼' : '刷物流條碼／換儲位',
                               border: const OutlineInputBorder(),
-                              prefixIcon: const Icon(Icons.keyboard),
+                              prefixIcon: const Icon(Icons.keyboard, size: 20),
+                              prefixIconConstraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
                               suffixIcon: _busy
                                   ? const Padding(
-                                      padding: EdgeInsets.all(12),
+                                      padding: EdgeInsets.all(10),
                                       child: SizedBox(
-                                        width: 20,
-                                        height: 20,
+                                        width: 16,
+                                        height: 16,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
                                         ),
@@ -606,10 +620,14 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                                     )
                                   : IconButton(
                                       tooltip: '送出',
-                                      icon: const Icon(Icons.send),
+                                      icon: const Icon(Icons.send, size: 20),
                                       onPressed: () =>
                                           _onScanSubmit(_scanController.text),
                                     ),
+                              suffixIconConstraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
                             ),
                             keyboardType: TextInputType.visiblePassword,
                             autocorrect: false,
@@ -627,22 +645,22 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                                 : null,
                           ),
                         ),
-                        if (_isIOS && focused)
+                        if (_isIOS)
                           IconButton(
                             tooltip: '收起鍵盤',
-                            icon: const Icon(Icons.keyboard_hide, size: 28),
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(Icons.keyboard_hide, size: 26),
                             onPressed: _hideKeyboard,
                           ),
-                        const SizedBox(width: 8),
                         SizedBox(
-                          height: 52,
-                          width: 56,
+                          height: 40,
+                          width: 44,
                           child: FilledButton(
                             style: FilledButton.styleFrom(
                               padding: EdgeInsets.zero,
                             ),
                             onPressed: _busy ? null : _openCamera,
-                            child: const Icon(Icons.photo_camera, size: 28),
+                            child: const Icon(Icons.photo_camera, size: 22),
                           ),
                         ),
                       ],
@@ -656,7 +674,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                     : const Color(0xFFC00C92),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 8,
+                  vertical: 4,
                 ),
                 child: Text(
                   _megText,
@@ -674,38 +692,67 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
               Container(
                 width: double.infinity,
                 color: Colors.grey.shade200,
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 2,
+                ),
                 child: Column(
                   children: [
-                    Text('上架儲位', style: Theme.of(context).textTheme.titleSmall),
-                    Text(
-                      _rkId.isEmpty ? '—' : _rkId,
-                      style: TextStyle(
-                        fontSize: 56,
-                        fontWeight: FontWeight.w900,
-                        height: 1.05,
-                        color: Colors.blue.shade800,
-                        letterSpacing: 2,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '上架儲位',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _rkId.isEmpty ? '—' : _rkId,
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            height: 1.05,
+                            color: Colors.blue.shade800,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        if (_rkId.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '$_rackQty 本',
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.blue.shade800,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (_rkId.isNotEmpty)
-                      Text(
-                        '此儲位已上架 $_rackQty 本',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
                     if (m != null)
                       Text(
                         '總驗收 ${m.ttlMustQty}／總上架 ${m.ttlRealQty}／總差異 ${m.ttlDifQty}',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                   ],
                 ),
               ),
               TabBar(
                 controller: _tabs,
+                labelPadding: EdgeInsets.zero,
                 tabs: [
-                  Tab(text: '應上架（${su?.sums.length ?? 0}）'),
-                  Tab(text: '儲位明細（${su?.details.length ?? 0}）'),
+                  Tab(height: 34, text: '應上架（${su?.sums.length ?? 0}）'),
+                  Tab(height: 34, text: '儲位明細（${su?.details.length ?? 0}）'),
                 ],
               ),
               Expanded(
