@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +8,8 @@ import '../models/putaway.dart';
 import '../services/kit_tts_service.dart';
 import '../services/putaway_service.dart';
 import 'barcode_camera_scan_screen.dart';
+
+enum _Meg { info, ok, warn, error }
 
 /// 上架作業（對齊 C121100M sle_keyin_data：6 碼＝儲位，其他＝物流條碼上架＋１）
 class PutawayWorkScreen extends StatefulWidget {
@@ -41,7 +45,14 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   String _rkId = '';
   int _rackQty = 0;
   String _megText = '請先刷讀儲位代碼（6 碼）';
-  bool _megOk = true;
+  _Meg _megKind = _Meg.info;
+  String _megQty = '';
+  bool _flash = false;
+
+  /// 刷槍一秒可刷多筆：先排隊、依序送出，處理中也不丟碼
+  final List<String> _queue = [];
+  bool _processing = false;
+  Timer? _syncTimer;
 
   @override
   void initState() {
@@ -54,6 +65,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
 
   @override
   void dispose() {
+    _syncTimer?.cancel();
     _tts.dispose();
     _scanController.dispose();
     _scanFocus.dispose();
@@ -63,26 +75,31 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
 
   bool get _editable => _su?.editable ?? false;
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  int _rackTotal(PutawaySuDetail su, String rkId) => su.details
+      .where((d) => d.rkId == rkId)
+      .fold<int>(0, (s, d) => s + d.realQty);
+
+  /// [silent]：刷讀告一段落後背景同步，不顯示 loading、刷讀中則略過
+  Future<void> _load({bool silent = false}) async {
+    if (silent && (_processing || _busy)) return;
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final su = await widget.service.fetchSu(widget.suNo);
       if (!mounted) return;
+      if (silent && (_processing || _queue.isNotEmpty)) return;
       setState(() {
         _su = su;
         _loading = false;
-        if (_rkId.isNotEmpty) {
-          _rackQty = su.details
-              .where((d) => d.rkId == _rkId)
-              .fold<int>(0, (s, d) => s + d.realQty);
-        }
+        if (_rkId.isNotEmpty) _rackQty = _rackTotal(su, _rkId);
       });
       _refocusScan();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || silent) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -101,11 +118,28 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     _scanFocus.unfocus();
   }
 
-  void _setMeg(String text, {required bool ok}) {
+  void _setMeg(
+    String text, {
+    required bool ok,
+    bool warn = false,
+    String qty = '',
+  }) {
     setState(() {
       _megText = text;
-      _megOk = ok;
+      _megKind = !ok ? _Meg.error : (warn ? _Meg.warn : _Meg.ok);
+      _megQty = qty;
+      _flash = true;
     });
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (mounted) setState(() => _flash = false);
+    });
+  }
+
+  void _fail(String message, {String speech = '錯誤'}) {
+    HapticFeedback.heavyImpact();
+    HapticFeedback.vibrate();
+    _setMeg(message, ok: false);
+    _tts.speak(speech);
   }
 
   Future<void> _showError(String title, String message) async {
@@ -126,62 +160,133 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     );
   }
 
-  Future<void> _onScanSubmit(String raw) async {
+  void _onScanSubmit(String raw) {
     final code = raw.trim().toUpperCase();
     _scanController.clear();
-    if (code.isEmpty && _isIOS) {
-      _hideKeyboard();
+    if (code.isEmpty) {
+      if (_isIOS) {
+        _hideKeyboard();
+      } else {
+        _refocusScan();
+      }
       return;
     }
-    if (code.isEmpty || _busy || !_editable) {
-      _refocusScan();
+    if (!_editable) return;
+    if (_busy) {
+      _fail('處理中，請稍候再刷：$code');
       return;
     }
+    setState(() => _queue.add(code));
+    _refocusScan();
+    _pump();
+  }
+
+  Future<void> _pump() async {
+    if (_processing) return;
+    _syncTimer?.cancel();
+    setState(() => _processing = true);
+    while (_queue.isNotEmpty && mounted) {
+      final code = _queue.removeAt(0);
+      await _handleCode(code);
+    }
+    if (!mounted) return;
+    setState(() => _processing = false);
+    _syncTimer = Timer(const Duration(seconds: 2), () => _load(silent: true));
+  }
+
+  Future<void> _handleCode(String code) async {
     if (code.length == 13 && (code.startsWith('CA') || code.startsWith('CB'))) {
-      await _showError('輸入：$code', '上架單建立後無法再增減驗收單；請直接刷儲位與物流條碼');
-      _refocusScan();
+      _fail('$code：上架單建立後無法再增減驗收單，請刷儲位或物流條碼');
       return;
     }
-    setState(() => _busy = true);
-    try {
-      if (code.length == 6) {
+    if (code.length == 6) {
+      try {
         final qty = await widget.service.checkRack(widget.suNo, code);
         if (!mounted) return;
         HapticFeedback.selectionClick();
         setState(() {
           _rkId = code;
           _rackQty = qty;
-          _busy = false;
         });
-        _setMeg('上架儲位 $code，請刷物流條碼', ok: true);
+        _setMeg('儲位 $code，請刷物流條碼', ok: true);
         _tts.speakRack(code);
-      } else {
-        if (_rkId.isEmpty) {
-          setState(() => _busy = false);
-          await _showError('輸入物流條碼：$code', '請先輸入 < 儲位代碼 >');
-          _refocusScan();
-          return;
-        }
-        final r = await widget.service.scan(widget.suNo, _rkId, code);
+      } catch (e) {
         if (!mounted) return;
-        if (r.over) {
-          HapticFeedback.heavyImpact();
-        } else {
-          HapticFeedback.mediumImpact();
-        }
-        setState(() {
-          _rackQty = r.rackQty;
-          _busy = false;
-        });
-        _setMeg('${r.message}（${r.realQty}/${r.mustQty}）', ok: !r.over);
-        await _load();
+        // 儲位錯了，後面排隊的書會放錯位置，一律丟棄請使用者重刷
+        final dropped = _queue.length;
+        setState(_queue.clear);
+        _fail(
+          '儲位 $code：$e${dropped > 0 ? '（後面 $dropped 筆未上架，請重刷）' : ''}',
+          speech: '儲位錯誤',
+        );
       }
+      return;
+    }
+    if (_rkId.isEmpty) {
+      _fail('$code 未上架：請先刷儲位代碼（6 碼）', speech: '請先刷儲位');
+      return;
+    }
+    try {
+      final r = await widget.service.scan(widget.suNo, _rkId, code);
+      if (!mounted) return;
+      _applyScan(r);
+      if (r.over) {
+        HapticFeedback.heavyImpact();
+        _tts.speak('溢上架');
+      } else {
+        HapticFeedback.mediumImpact();
+        _tts.speak('${r.realQty}');
+      }
+      _setMeg(
+        r.prodNm.isNotEmpty ? r.prodNm : r.logcode,
+        ok: true,
+        warn: r.over,
+        qty: '${r.realQty}/${r.mustQty}',
+      );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _busy = false);
-      await _showError('輸入：$code', e.toString());
+      final msg = e.toString();
+      _fail('$code：$msg', speech: msg.contains('不存在') ? '查無此書' : '錯誤');
     }
-    _refocusScan();
+  }
+
+  void _applyScan(PutawayScanResult r) {
+    final su = _su;
+    if (su == null) return;
+    final sums = [
+      for (final s in su.sums)
+        s.logcode == r.logcode ? s.copyWithReal(r.realQty) : s,
+    ];
+    final details = [...su.details];
+    final i = details.indexWhere(
+      (d) => d.rkId == r.rkId && d.logcode == r.logcode,
+    );
+    if (i >= 0) {
+      details[i] = details[i].copyWithReal(r.rackQty);
+    } else {
+      details.add(
+        PutawayDetailLine(
+          rkId: r.rkId,
+          prodId: r.prodId,
+          logcode: r.logcode,
+          prodNm: r.prodNm,
+          realQty: r.rackQty,
+        ),
+      );
+    }
+    final next = su.copyWith(
+      main: su.main.copyWithTotals(
+        ttlMustQty: r.ttlMustQty,
+        ttlRealQty: r.ttlRealQty,
+        ttlDifQty: r.ttlDifQty,
+      ),
+      sums: sums,
+      details: details,
+    );
+    setState(() {
+      _su = next;
+      _rackQty = _rackTotal(next, _rkId);
+    });
   }
 
   Future<void> _openCamera() async {
@@ -195,7 +300,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     );
     if (!mounted) return;
     if (code != null && code.trim().isNotEmpty) {
-      await _onScanSubmit(code);
+      _onScanSubmit(code);
     } else {
       _refocusScan();
     }
@@ -557,6 +662,73 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     );
   }
 
+  /// 刷讀結果列：綠＝上架成功、橘＝溢上架、紅＝錯誤；每次刷讀閃一下
+  Widget _buildMegBar() {
+    final base = switch (_megKind) {
+      _Meg.info => const Color(0xFF000080),
+      _Meg.ok => Colors.green.shade700,
+      _Meg.warn => Colors.orange.shade800,
+      _Meg.error => Colors.red.shade700,
+    };
+    final color = _flash ? Color.lerp(base, Colors.white, 0.5)! : base;
+    final icon = switch (_megKind) {
+      _Meg.info => Icons.info_outline,
+      _Meg.ok => Icons.check_circle,
+      _Meg.warn => Icons.warning_amber_rounded,
+      _Meg.error => Icons.cancel,
+    };
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: double.infinity,
+      color: color,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white, size: 28),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _megText,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                height: 1.2,
+              ),
+            ),
+          ),
+          if (_megQty.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text(
+              _megQty,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 26,
+              ),
+            ),
+          ],
+          if (_queue.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '待處理 ${_queue.length}',
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildBody(PutawaySuDetail? su, PutawaySuSummary? m, bool focused) {
     return _loading && su == null
         ? const Center(child: CircularProgressIndicator())
@@ -588,7 +760,6 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                           child: TextField(
                             controller: _scanController,
                             focusNode: _scanFocus,
-                            enabled: !_busy,
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w600,
@@ -607,7 +778,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                                 minWidth: 36,
                                 minHeight: 36,
                               ),
-                              suffixIcon: _busy
+                              suffixIcon: (_busy || _processing)
                                   ? const Padding(
                                       padding: EdgeInsets.all(10),
                                       child: SizedBox(
@@ -639,6 +810,8 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                             ],
                             textInputAction: TextInputAction.done,
                             onSubmitted: _onScanSubmit,
+                            // 預設送出後會失焦，刷槍連續刷的下一筆會漏字
+                            onEditingComplete: () {},
                             onTap: () => _keepScanFocus = true,
                             onTapOutside: _isIOS
                                 ? (_) => _hideKeyboard()
@@ -667,28 +840,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                     ),
                   ),
                 ),
-              Container(
-                width: double.infinity,
-                color: _megOk
-                    ? const Color(0xFF000080)
-                    : const Color(0xFFC00C92),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                child: Text(
-                  _megText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _megOk
-                        ? const Color(0xFFFFFF00)
-                        : const Color(0xFF00FFFF),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
+              _buildMegBar(),
               Container(
                 width: double.infinity,
                 color: Colors.grey.shade200,

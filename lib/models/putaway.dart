@@ -19,7 +19,8 @@ class PutawayPendingIqc {
   final int lineCnt;
   final String iqcFinTime;
 
-  factory PutawayPendingIqc.fromJson(Map<String, dynamic> j) => PutawayPendingIqc(
+  factory PutawayPendingIqc.fromJson(Map<String, dynamic> j) =>
+      PutawayPendingIqc(
         iqcNo: _asStr(j['iqc_no']),
         supNm: _asStr(j['sup_nm']),
         ttlIqcQty: _asInt(j['ttl_iqc_qty']),
@@ -60,6 +61,25 @@ class PutawaySuSummary {
 
   bool get isOpen => statusFlg == 'N';
 
+  PutawaySuSummary copyWithTotals({
+    required int ttlMustQty,
+    required int ttlRealQty,
+    required int ttlDifQty,
+  }) => PutawaySuSummary(
+    suNo: suNo,
+    statusFlg: statusFlg,
+    ttlMustQty: ttlMustQty,
+    ttlRealQty: ttlRealQty,
+    ttlDifQty: ttlDifQty,
+    crtUser: crtUser,
+    crtTime: crtTime,
+    finUser: finUser,
+    chkFlg: chkFlg,
+    iqcNoList: iqcNoList,
+    rkIdList: rkIdList,
+    note: note,
+  );
+
   String get statusLabel {
     switch (statusFlg) {
       case 'N':
@@ -74,19 +94,19 @@ class PutawaySuSummary {
   }
 
   factory PutawaySuSummary.fromJson(Map<String, dynamic> j) => PutawaySuSummary(
-        suNo: _asStr(j['su_no']),
-        statusFlg: _asStr(j['status_flg']),
-        ttlMustQty: _asInt(j['ttl_must_qty']),
-        ttlRealQty: _asInt(j['ttl_real_qty']),
-        ttlDifQty: _asInt(j['ttl_dif_qty']),
-        crtUser: _asStr(j['crt_user']),
-        crtTime: _asStr(j['crt_time']),
-        finUser: _asStr(j['fin_user']),
-        chkFlg: _asStr(j['chk_flg']),
-        iqcNoList: _asStr(j['iqc_no_list']),
-        rkIdList: _asStr(j['rk_id_list']),
-        note: _asStr(j['note']),
-      );
+    suNo: _asStr(j['su_no']),
+    statusFlg: _asStr(j['status_flg']),
+    ttlMustQty: _asInt(j['ttl_must_qty']),
+    ttlRealQty: _asInt(j['ttl_real_qty']),
+    ttlDifQty: _asInt(j['ttl_dif_qty']),
+    crtUser: _asStr(j['crt_user']),
+    crtTime: _asStr(j['crt_time']),
+    finUser: _asStr(j['fin_user']),
+    chkFlg: _asStr(j['chk_flg']),
+    iqcNoList: _asStr(j['iqc_no_list']),
+    rkIdList: _asStr(j['rk_id_list']),
+    note: _asStr(j['note']),
+  );
 }
 
 /// 應上架彙總（NEW_PUR_SU_SUM）
@@ -116,17 +136,29 @@ class PutawaySumLine {
   int get difQty => realQty - mustQty;
   int get remainQty => mustQty - realQty > 0 ? mustQty - realQty : 0;
 
+  PutawaySumLine copyWithReal(int realQty) => PutawaySumLine(
+    pitem: pitem,
+    prodId: prodId,
+    logcode: logcode,
+    prodNm: prodNm,
+    orgFlg: orgFlg,
+    fragileFlg: fragileFlg,
+    iqcNo: iqcNo,
+    mustQty: mustQty,
+    realQty: realQty,
+  );
+
   factory PutawaySumLine.fromJson(Map<String, dynamic> j) => PutawaySumLine(
-        pitem: _asInt(j['pitem']),
-        prodId: _asStr(j['prod_id']),
-        logcode: _asStr(j['logcode']),
-        prodNm: _asStr(j['prod_nm']),
-        orgFlg: _asStr(j['org_flg']),
-        fragileFlg: _asStr(j['fragile_flg']),
-        iqcNo: _asStr(j['iqc_no']),
-        mustQty: _asInt(j['must_qty']),
-        realQty: _asInt(j['real_qty']),
-      );
+    pitem: _asInt(j['pitem']),
+    prodId: _asStr(j['prod_id']),
+    logcode: _asStr(j['logcode']),
+    prodNm: _asStr(j['prod_nm']),
+    orgFlg: _asStr(j['org_flg']),
+    fragileFlg: _asStr(j['fragile_flg']),
+    iqcNo: _asStr(j['iqc_no']),
+    mustQty: _asInt(j['must_qty']),
+    realQty: _asInt(j['real_qty']),
+  );
 }
 
 /// 儲位上架明細（NEW_PUR_SU_DETAIL）
@@ -145,7 +177,16 @@ class PutawayDetailLine {
   final String prodNm;
   final int realQty;
 
-  factory PutawayDetailLine.fromJson(Map<String, dynamic> j) => PutawayDetailLine(
+  PutawayDetailLine copyWithReal(int realQty) => PutawayDetailLine(
+    rkId: rkId,
+    prodId: prodId,
+    logcode: logcode,
+    prodNm: prodNm,
+    realQty: realQty,
+  );
+
+  factory PutawayDetailLine.fromJson(Map<String, dynamic> j) =>
+      PutawayDetailLine(
         rkId: _asStr(j['rk_id']),
         prodId: _asStr(j['prod_id']),
         logcode: _asStr(j['logcode']),
@@ -169,24 +210,37 @@ class PutawaySuDetail {
   final List<PutawaySumLine> sums;
   final List<PutawayDetailLine> details;
 
+  PutawaySuDetail copyWith({
+    PutawaySuSummary? main,
+    List<PutawaySumLine>? sums,
+    List<PutawayDetailLine>? details,
+  }) => PutawaySuDetail(
+    main: main ?? this.main,
+    editable: editable,
+    iqcNos: iqcNos,
+    sums: sums ?? this.sums,
+    details: details ?? this.details,
+  );
+
   factory PutawaySuDetail.fromJson(Map<String, dynamic> j) => PutawaySuDetail(
-        main: PutawaySuSummary.fromJson(j),
-        editable: j['editable'] == true,
-        iqcNos: (j['iqc_nos'] as List? ?? const []).map((e) => '$e').toList(),
-        sums: (j['sums'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => PutawaySumLine.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
-        details: (j['details'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => PutawayDetailLine.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
-      );
+    main: PutawaySuSummary.fromJson(j),
+    editable: j['editable'] == true,
+    iqcNos: (j['iqc_nos'] as List? ?? const []).map((e) => '$e').toList(),
+    sums: (j['sums'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => PutawaySumLine.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+    details: (j['details'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => PutawayDetailLine.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+  );
 }
 
 class PutawayScanResult {
   const PutawayScanResult({
     required this.rkId,
+    required this.prodId,
     required this.logcode,
     required this.prodNm,
     required this.rackQty,
@@ -194,19 +248,30 @@ class PutawayScanResult {
     required this.realQty,
     required this.over,
     required this.message,
+    required this.ttlMustQty,
+    required this.ttlRealQty,
+    required this.ttlDifQty,
   });
 
   final String rkId;
+  final String prodId;
   final String logcode;
   final String prodNm;
+
+  /// 此儲位此物流條碼的上架量
   final int rackQty;
   final int mustQty;
   final int realQty;
   final bool over;
   final String message;
+  final int ttlMustQty;
+  final int ttlRealQty;
+  final int ttlDifQty;
 
-  factory PutawayScanResult.fromJson(Map<String, dynamic> j) => PutawayScanResult(
+  factory PutawayScanResult.fromJson(Map<String, dynamic> j) =>
+      PutawayScanResult(
         rkId: _asStr(j['rk_id']),
+        prodId: _asStr(j['prod_id']),
         logcode: _asStr(j['logcode']),
         prodNm: _asStr(j['prod_nm']),
         rackQty: _asInt(j['rack_qty']),
@@ -214,6 +279,9 @@ class PutawayScanResult {
         realQty: _asInt(j['real_qty']),
         over: j['over'] == true,
         message: _asStr(j['message']),
+        ttlMustQty: _asInt(j['ttl_must_qty']),
+        ttlRealQty: _asInt(j['ttl_real_qty']),
+        ttlDifQty: _asInt(j['ttl_dif_qty']),
       );
 }
 
@@ -235,13 +303,13 @@ class PutawayClash {
   final String clashProdNm;
 
   factory PutawayClash.fromJson(Map<String, dynamic> j) => PutawayClash(
-        clashFlg: _asStr(j['clash_flg']),
-        rkId: _asStr(j['rk_id']),
-        prodNm: _asStr(j['prod_nm']),
-        logcode: _asStr(j['logcode']),
-        clashLogcode: _asStr(j['clash_logcode']),
-        clashProdNm: _asStr(j['clash_prod_nm']),
-      );
+    clashFlg: _asStr(j['clash_flg']),
+    rkId: _asStr(j['rk_id']),
+    prodNm: _asStr(j['prod_nm']),
+    logcode: _asStr(j['logcode']),
+    clashLogcode: _asStr(j['clash_logcode']),
+    clashProdNm: _asStr(j['clash_prod_nm']),
+  );
 }
 
 /// 完成上架被擋（blocked）或需確認（need_confirm）
@@ -262,18 +330,19 @@ class PutawayFinishException implements Exception {
   final List<String> warnings;
   final List<PutawayClash> clashes;
 
-  factory PutawayFinishException.fromDetail(Map<String, dynamic> d) =>
-      PutawayFinishException(
-        message: _asStr(d['message']),
-        blocked: d['blocked'] == true,
-        needConfirm: d['need_confirm'] == true,
-        blockers: (d['blockers'] as List? ?? const []).map((e) => '$e').toList(),
-        warnings: (d['warnings'] as List? ?? const []).map((e) => '$e').toList(),
-        clashes: (d['clashes'] as List? ?? const [])
-            .whereType<Map>()
-            .map((e) => PutawayClash.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
-      );
+  factory PutawayFinishException.fromDetail(
+    Map<String, dynamic> d,
+  ) => PutawayFinishException(
+    message: _asStr(d['message']),
+    blocked: d['blocked'] == true,
+    needConfirm: d['need_confirm'] == true,
+    blockers: (d['blockers'] as List? ?? const []).map((e) => '$e').toList(),
+    warnings: (d['warnings'] as List? ?? const []).map((e) => '$e').toList(),
+    clashes: (d['clashes'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => PutawayClash.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+  );
 
   @override
   String toString() => message;

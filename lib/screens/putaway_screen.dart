@@ -276,6 +276,7 @@ class _PutawayScreenState extends State<PutawayScreen> {
                     enableSuggestions: false,
                     textInputAction: TextInputAction.done,
                     onSubmitted: _onScanSubmit,
+                    onEditingComplete: () {},
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
                     ],

@@ -84,6 +84,15 @@ class KitTtsService {
     } catch (_) {}
   }
 
+  Future<void> speak(String text) async {
+    if (text.trim().isEmpty) return;
+    try {
+      await _ready;
+      await _tts.stop();
+      await _tts.speak(text);
+    } catch (_) {}
+  }
+
   Future<void> dispose() async {
     try {
       await _tts.stop();
