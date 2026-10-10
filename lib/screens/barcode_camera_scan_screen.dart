@@ -3,11 +3,27 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-/// 相機掃物流條碼（回傳掃到的字串後關閉）
+/// 書籍只讀 EAN-13：書上常有多個條碼或 QR Code，限定格式避免讀錯。
+/// 相機辨識不支援 +2／+5 附加碼，只回傳 13 碼，後端以前綴比對物流條碼。
+const kBookBarcodeFormats = [BarcodeFormat.ean13];
+
+/// 儲位標籤、單號（FC／CA／CB）用一維碼
+const kCodeBarcodeFormats = [
+  BarcodeFormat.code128,
+  BarcodeFormat.code39,
+  BarcodeFormat.code93,
+];
+
+/// 相機掃條碼（回傳掃到的字串後關閉）
 class BarcodeCameraScanScreen extends StatefulWidget {
-  const BarcodeCameraScanScreen({super.key, this.title = '掃描物流條碼'});
+  const BarcodeCameraScanScreen({
+    super.key,
+    this.title = '掃描物流條碼',
+    this.formats = kBookBarcodeFormats,
+  });
 
   final String title;
+  final List<BarcodeFormat> formats;
 
   @override
   State<BarcodeCameraScanScreen> createState() =>
@@ -19,21 +35,14 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
   /// 會得到 controllerAlreadyInitialized（黑屏），所以新畫面要先等它完成。
   static Future<void>? _releasing;
 
-  final MobileScannerController _controller = MobileScannerController(
+  late final MobileScannerController _controller = MobileScannerController(
     autoStart: false,
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
-    formats: const [
-      BarcodeFormat.code128,
-      BarcodeFormat.code39,
-      BarcodeFormat.code93,
-      BarcodeFormat.ean13,
-      BarcodeFormat.ean8,
-      BarcodeFormat.upcA,
-      BarcodeFormat.upcE,
-      BarcodeFormat.qrCode,
-    ],
+    formats: widget.formats,
   );
+
+  bool get _isBook => identical(widget.formats, kBookBarcodeFormats);
 
   bool _handled = false;
   bool _restarting = false;
@@ -175,14 +184,14 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
               ),
             ),
           ),
-          const Positioned(
+          Positioned(
             left: 0,
             right: 0,
             bottom: 48,
             child: Text(
-              '將物流條碼對準框內',
+              _isBook ? '將書籍 EAN-13 條碼對準框內' : '將儲位或單號條碼對準框內',
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,

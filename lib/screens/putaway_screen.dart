@@ -124,7 +124,10 @@ class _PutawayScreenState extends State<PutawayScreen> {
   Future<void> _openCamera() async {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => const BarcodeCameraScanScreen(title: '掃描驗收單號 CA／上架單號 CB'),
+        builder: (_) => const BarcodeCameraScanScreen(
+          title: '掃描驗收單號 CA／上架單號 CB',
+          formats: kCodeBarcodeFormats,
+        ),
       ),
     );
     if (code != null && code.trim().isNotEmpty) {

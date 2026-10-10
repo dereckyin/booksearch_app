@@ -35,7 +35,11 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   /// 掃描框預設聚焦，方便連續刷碼。iPhone 用輸入框旁的按鈕收起鍵盤。
   bool _keepScanFocus = true;
   static final bool _isIOS = defaultTargetPlatform == TargetPlatform.iOS;
-  late final TabController _tabs = TabController(length: 2, vsync: this);
+  late final TabController _tabs = TabController(length: 3, vsync: this);
+  static const _diffTab = 2;
+
+  /// 已上架頁籤排序：false＝依條碼、true＝依儲位
+  bool _placedByRack = false;
 
   PutawaySuDetail? _su;
   bool _loading = true;
@@ -289,13 +293,16 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
     });
   }
 
-  Future<void> _openCamera() async {
+  Future<void> _openCamera({required bool rack}) async {
     if (_isIOS) _hideKeyboard();
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => BarcodeCameraScanScreen(
-          title: _rkId.isEmpty ? '掃描儲位代碼' : '掃描物流條碼（儲位 $_rkId）',
-        ),
+        builder: (_) => rack
+            ? const BarcodeCameraScanScreen(
+                title: '掃描儲位代碼',
+                formats: kCodeBarcodeFormats,
+              )
+            : BarcodeCameraScanScreen(title: '掃描書籍條碼（儲位 $_rkId）'),
       ),
     );
     if (!mounted) return;
@@ -516,6 +523,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
         ),
       );
     }
+    final hasDiff = su.main.ttlDifQty != 0 || su.sums.any((s) => s.difQty != 0);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -526,101 +534,266 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
         ),
         child: SizedBox(
           height: keyboardOpen ? 40 : 48,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: su.main.ttlDifQty == 0
-                  ? Colors.green.shade700
-                  : Colors.orange.shade800,
-            ),
-            onPressed: (_busy || _loading) ? null : _finish,
-            icon: const Icon(Icons.task_alt),
-            label: const Text(
-              '完成上架',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-          ),
+          child: hasDiff
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: null,
+                        icon: const Icon(Icons.block),
+                        label: const Text(
+                          '尚有差異，不可完成',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red.shade700,
+                        side: BorderSide(color: Colors.red.shade700),
+                      ),
+                      onPressed: () => _tabs.animateTo(_diffTab),
+                      icon: const Icon(Icons.rule),
+                      label: const Text('看差異'),
+                    ),
+                  ],
+                )
+              : FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                  ),
+                  onPressed: (_busy || _loading) ? null : _finish,
+                  icon: const Icon(Icons.task_alt),
+                  label: const Text(
+                    '完成上架',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                ),
         ),
       ),
     );
   }
 
-  Widget _buildSums(PutawaySuDetail su) {
-    if (su.sums.isEmpty) return const Center(child: Text('無應上架商品'));
-    final sums = [...su.sums]
-      ..sort((a, b) {
-        final ar = a.remainQty > 0 ? 0 : 1;
-        final br = b.remainQty > 0 ? 0 : 1;
-        if (ar != br) return ar - br;
-        return a.pitem - b.pitem;
-      });
+  String _sumTitle(PutawaySumLine s) =>
+      '${s.prodNm.isEmpty ? s.logcode : s.prodNm}'
+      '${s.fragileFlg == 'Y' ? '　易碎' : ''}';
+
+  Widget _buildPending(PutawaySuDetail su) {
+    final sums = su.sums.where((s) => s.remainQty > 0).toList()
+      ..sort((a, b) => a.pitem - b.pitem);
+    if (sums.isEmpty) {
+      return Center(child: Text(su.sums.isEmpty ? '無應上架商品' : '全部已上架'));
+    }
     return ListView.builder(
       itemCount: sums.length,
       itemBuilder: (_, i) {
         final s = sums[i];
-        final done = s.difQty == 0;
-        final over = s.difQty > 0;
-        final color = done
-            ? Colors.green.shade700
-            : over
-            ? Colors.red.shade700
-            : Colors.orange.shade800;
         return ListTile(
           dense: true,
           leading: Icon(
-            done
-                ? Icons.check_circle
-                : (over ? Icons.error : Icons.radio_button_unchecked),
-            color: color,
+            Icons.radio_button_unchecked,
+            color: Colors.orange.shade800,
           ),
           title: Text(
-            '${s.prodNm.isEmpty ? s.logcode : s.prodNm}'
-            '${s.fragileFlg == 'Y' ? '　易碎' : ''}',
+            _sumTitle(s),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           subtitle: Text('物流條碼 ${s.logcode}　${s.iqcNo}'),
-          trailing: Text(
-            '${s.realQty}/${s.mustQty}',
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: 16,
-            ),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${s.realQty}/${s.mustQty}',
+                style: TextStyle(
+                  color: Colors.orange.shade800,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+              Text('尚缺 ${s.remainQty}', style: const TextStyle(fontSize: 12)),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildDetails(PutawaySuDetail su) {
-    if (su.details.isEmpty) return const Center(child: Text('尚未上架任何商品'));
-    return ListView.builder(
-      itemCount: su.details.length,
-      itemBuilder: (_, i) {
-        final d = su.details[i];
-        final current = d.rkId == _rkId;
-        return ListTile(
-          dense: true,
-          selected: current,
-          leading: Text(
-            d.rkId,
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-              color: current ? Colors.blue.shade800 : Colors.black87,
+  Widget _groupHeader(String title, String trailing) {
+    return Container(
+      color: Colors.blueGrey.shade50,
+      padding: const EdgeInsets.fromLTRB(12, 6, 16, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
+          const SizedBox(width: 8),
+          Text(
+            trailing,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlaced(PutawaySuDetail su) {
+    if (su.details.isEmpty) return const Center(child: Text('尚未上架任何商品'));
+    final byRack = _placedByRack;
+    final groups = <String, List<PutawayDetailLine>>{};
+    for (final d in su.details) {
+      groups.putIfAbsent(byRack ? d.rkId : d.logcode, () => []).add(d);
+    }
+    final keys = groups.keys.toList()..sort();
+    final mustOf = <String, int>{};
+    for (final s in su.sums) {
+      mustOf[s.logcode] = (mustOf[s.logcode] ?? 0) + s.mustQty;
+    }
+
+    final children = <Widget>[];
+    for (final k in keys) {
+      final lines = groups[k]!
+        ..sort(
+          (a, b) => byRack
+              ? a.logcode.compareTo(b.logcode)
+              : a.rkId.compareTo(b.rkId),
+        );
+      final total = lines.fold<int>(0, (s, d) => s + d.realQty);
+      if (byRack) {
+        children.add(_groupHeader('儲位 $k', '$total 本'));
+      } else {
+        final first = lines.first;
+        final must = mustOf[k];
+        children.add(
+          _groupHeader(
+            first.prodNm.isEmpty ? k : first.prodNm,
+            must == null ? '$total 本' : '$total/$must',
+          ),
+        );
+      }
+      for (final d in lines) {
+        final current = d.rkId == _rkId;
+        children.add(
+          ListTile(
+            dense: true,
+            selected: current,
+            leading: byRack
+                ? null
+                : Text(
+                    d.rkId,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: current ? Colors.blue.shade800 : Colors.black87,
+                    ),
+                  ),
+            title: byRack
+                ? Text(
+                    d.prodNm.isEmpty ? d.logcode : d.prodNm,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : Text('物流條碼 ${d.logcode}'),
+            subtitle: byRack ? Text('物流條碼 ${d.logcode}') : null,
+            trailing: Text(
+              '${d.realQty}',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            ),
+            onTap: _editable && !_busy ? () => _adjust(d) : null,
+          ),
+        );
+      }
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+          child: SegmentedButton<bool>(
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            segments: const [
+              ButtonSegment(
+                value: false,
+                icon: Icon(Icons.qr_code, size: 18),
+                label: Text('依條碼'),
+              ),
+              ButtonSegment(
+                value: true,
+                icon: Icon(Icons.shelves, size: 18),
+                label: Text('依儲位'),
+              ),
+            ],
+            selected: {byRack},
+            onSelectionChanged: (v) => setState(() => _placedByRack = v.first),
+          ),
+        ),
+        Expanded(child: ListView(children: children)),
+      ],
+    );
+  }
+
+  Widget _buildDiff(PutawaySuDetail su) {
+    final sums = su.sums.where((s) => s.difQty != 0).toList()
+      ..sort((a, b) => a.pitem - b.pitem);
+    if (sums.isEmpty) {
+      return Center(
+        child: Text(
+          '無差異',
+          style: TextStyle(
+            color: Colors.green.shade700,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: sums.length,
+      itemBuilder: (_, i) {
+        final s = sums[i];
+        final over = s.difQty > 0;
+        final color = over ? Colors.red.shade700 : Colors.orange.shade800;
+        return ListTile(
+          dense: true,
+          leading: Icon(
+            over ? Icons.error : Icons.remove_circle_outline,
+            color: color,
+          ),
           title: Text(
-            d.prodNm.isEmpty ? d.logcode : d.prodNm,
+            _sumTitle(s),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          subtitle: Text('物流條碼 ${d.logcode}'),
-          trailing: Text(
-            '${d.realQty}',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          subtitle: Text(
+            '物流條碼 ${s.logcode}\n應上架 ${s.mustQty}／已上架 ${s.realQty}',
           ),
-          onTap: _editable && !_busy ? () => _adjust(d) : null,
+          isThreeLine: true,
+          trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              over ? '多 ${s.difQty}' : '少 ${-s.difQty}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
+            ),
+          ),
         );
       },
     );
@@ -658,6 +831,31 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
           // 不用 bottomNavigationBar：iOS 鍵盤會蓋住它，放在 body 才會被推到鍵盤上方
           if (bottomBar != null) bottomBar,
         ],
+      ),
+    );
+  }
+
+  Widget _cameraButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return SizedBox(
+      height: 44,
+      width: 48,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          padding: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        onPressed: onPressed,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20),
+            Text(label, style: const TextStyle(fontSize: 11, height: 1.1)),
+          ],
+        ),
       ),
     );
   }
@@ -730,6 +928,7 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
   }
 
   Widget _buildBody(PutawaySuDetail? su, PutawaySuSummary? m, bool focused) {
+    final diffCount = su?.sums.where((s) => s.difQty != 0).length ?? 0;
     return _loading && su == null
         ? const Center(child: CircularProgressIndicator())
         : _error != null && su == null
@@ -825,16 +1024,20 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                             icon: const Icon(Icons.keyboard_hide, size: 26),
                             onPressed: _hideKeyboard,
                           ),
-                        SizedBox(
-                          height: 40,
-                          width: 44,
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                            ),
-                            onPressed: _busy ? null : _openCamera,
-                            child: const Icon(Icons.photo_camera, size: 22),
-                          ),
+                        _cameraButton(
+                          label: '儲位',
+                          icon: Icons.shelves,
+                          onPressed: _busy
+                              ? null
+                              : () => _openCamera(rack: true),
+                        ),
+                        const SizedBox(width: 4),
+                        _cameraButton(
+                          label: '書',
+                          icon: Icons.menu_book,
+                          onPressed: (_busy || _rkId.isEmpty)
+                              ? null
+                              : () => _openCamera(rack: false),
                         ),
                       ],
                     ),
@@ -903,8 +1106,24 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                 controller: _tabs,
                 labelPadding: EdgeInsets.zero,
                 tabs: [
-                  Tab(height: 34, text: '應上架（${su?.sums.length ?? 0}）'),
-                  Tab(height: 34, text: '儲位明細（${su?.details.length ?? 0}）'),
+                  Tab(
+                    height: 34,
+                    text:
+                        '待上架（${su?.sums.where((s) => s.remainQty > 0).length ?? 0}）',
+                  ),
+                  Tab(height: 34, text: '已上架（${su?.details.length ?? 0}）'),
+                  Tab(
+                    height: 34,
+                    child: Text(
+                      '差異（$diffCount）',
+                      style: diffCount > 0
+                          ? TextStyle(
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w800,
+                            )
+                          : null,
+                    ),
+                  ),
                 ],
               ),
               Expanded(
@@ -912,7 +1131,11 @@ class _PutawayWorkScreenState extends State<PutawayWorkScreen>
                     ? const SizedBox.shrink()
                     : TabBarView(
                         controller: _tabs,
-                        children: [_buildSums(su), _buildDetails(su)],
+                        children: [
+                          _buildPending(su),
+                          _buildPlaced(su),
+                          _buildDiff(su),
+                        ],
                       ),
               ),
             ],

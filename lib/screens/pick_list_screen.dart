@@ -2895,6 +2895,10 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   bool _loading = true;
   String? _error;
   late final PageController _pageController;
+
+  /// 品項卡兩指縮放；放大中停用左右換頁，讓單指拖曳移動畫面
+  final TransformationController _zoom = TransformationController();
+  bool _zoomed = false;
   bool get _isReadOnly => widget.readOnly;
   bool get _isMerge =>
       widget.mergeMains != null && widget.mergeMains!.length >= 2;
@@ -2913,14 +2917,23 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     super.initState();
     _service = widget.service ?? PickListService();
     _pageController = PageController();
+    _zoom.addListener(_onZoomChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _zoom.dispose();
     _pageController.dispose();
     super.dispose();
   }
+
+  void _onZoomChanged() {
+    final zoomed = _zoom.value.getMaxScaleOnAxis() > 1.01;
+    if (zoomed != _zoomed && mounted) setState(() => _zoomed = zoomed);
+  }
+
+  void _resetZoom() => _zoom.value = Matrix4.identity();
 
   static String _progressKeySingle(String sdNo) =>
       'pick_list_progress_${sdNo.replaceAll(RegExp(r'[^\w\-]'), '_')}';
@@ -3188,7 +3201,8 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
             ),
         ],
       ),
-      body: _buildBody(),
+      // Android 15 起強制 edge-to-edge，底部按鈕列會被系統導覽列（小米三鍵／手勢列）蓋住
+      body: SafeArea(top: false, child: _buildBody()),
     );
   }
 
@@ -3241,11 +3255,13 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       final isNotFound = _notFound.contains(itemKey);
       content = GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragEnd: (details) {
-          final v = details.primaryVelocity ?? 0;
-          if (v < -150) _go(1);
-          if (v > 150) _go(-1);
-        },
+        onHorizontalDragEnd: _zoomed
+            ? null
+            : (details) {
+                final v = details.primaryVelocity ?? 0;
+                if (v < -150) _go(1);
+                if (v > 150) _go(-1);
+              },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -3253,7 +3269,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
               child: PageView.builder(
                 controller: _pageController,
                 itemCount: filtered.length,
+                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
                 onPageChanged: (index) {
+                  _resetZoom();
                   setState(() => _currentVisibleIndex = index);
                 },
                 itemBuilder: (context, index) {
@@ -3275,9 +3293,11 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                         return (rk != null && rk.isNotEmpty) ? rk : it.id;
                       })(),
                   ];
-                  return SizedBox.expand(
-                    child: SingleChildScrollView(
+                  final card = SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
+                      physics: _zoomed
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
                       child: _PickCard(
                         item: pageItem,
                         onTap: () {},
@@ -3296,7 +3316,31 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                             ? '${pageItem.sdNo}${_mergeSdNoToSuffix[pageItem.sdNo] ?? ''}'
                             : null,
                       ),
-                    ),
+                  );
+                  if (index != _currentVisibleIndex) {
+                    return SizedBox.expand(child: card);
+                  }
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      InteractiveViewer(
+                        transformationController: _zoom,
+                        minScale: 1,
+                        maxScale: 3,
+                        panEnabled: _zoomed,
+                        child: card,
+                      ),
+                      if (_zoomed)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: FilledButton.tonalIcon(
+                            onPressed: _resetZoom,
+                            icon: const Icon(Icons.zoom_out_map, size: 18),
+                            label: const Text('還原'),
+                          ),
+                        ),
+                    ],
                   );
                 },
               ),

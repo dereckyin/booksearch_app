@@ -115,7 +115,10 @@ class _VirtualBinScreenState extends State<VirtualBinScreen> {
   Future<void> _openCameraFc() async {
     final code = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (_) => const BarcodeCameraScanScreen(title: '掃描揀貨單號 FC'),
+        builder: (_) => const BarcodeCameraScanScreen(
+          title: '掃描揀貨單號 FC',
+          formats: kCodeBarcodeFormats,
+        ),
       ),
     );
     if (code != null && code.trim().isNotEmpty) {
