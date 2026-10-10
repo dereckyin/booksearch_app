@@ -2738,7 +2738,10 @@ class _PickCard extends StatelessWidget {
                         Text(
                           title,
                           style: Theme.of(context).textTheme.titleMedium,
-                          maxLines: 2,
+                          maxLines:
+                              MediaQuery.textScalerOf(context).scale(10) > 12
+                              ? 4
+                              : 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                         if (sourceOrderLabel != null &&
@@ -2896,9 +2899,16 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
   String? _error;
   late final PageController _pageController;
 
-  /// 品項卡兩指縮放；放大中停用左右換頁，讓單指拖曳移動畫面
-  final TransformationController _zoom = TransformationController();
-  bool _zoomed = false;
+  /// 品項卡兩指縮放：放大的是字級（重新排版），不用 Transform 放大，
+  /// 否則部分 Android 機型文字會破圖、也無法正常上下捲動
+  static const _textScaleKey = 'pick_card_text_scale';
+  static const _minTextScale = 1.0;
+  static const _maxTextScale = 2.0;
+  double _textScale = 1.0;
+  final Map<int, Offset> _pointers = {};
+  double? _pinchStartDist;
+  double _pinchStartScale = 1.0;
+  bool get _pinching => _pinchStartDist != null;
   bool get _isReadOnly => widget.readOnly;
   bool get _isMerge =>
       widget.mergeMains != null && widget.mergeMains!.length >= 2;
@@ -2917,23 +2927,67 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
     super.initState();
     _service = widget.service ?? PickListService();
     _pageController = PageController();
-    _zoom.addListener(_onZoomChanged);
+    _loadTextScale();
     _load();
   }
 
   @override
   void dispose() {
-    _zoom.dispose();
     _pageController.dispose();
     super.dispose();
   }
 
-  void _onZoomChanged() {
-    final zoomed = _zoom.value.getMaxScaleOnAxis() > 1.01;
-    if (zoomed != _zoomed && mounted) setState(() => _zoomed = zoomed);
+  Future<void> _loadTextScale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getDouble(_textScaleKey);
+    if (v != null && mounted) {
+      setState(() => _textScale = v.clamp(_minTextScale, _maxTextScale));
+    }
   }
 
-  void _resetZoom() => _zoom.value = Matrix4.identity();
+  Future<void> _saveTextScale() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_textScaleKey, _textScale);
+  }
+
+  void _resetTextScale() {
+    setState(() => _textScale = 1.0);
+    _saveTextScale();
+  }
+
+  double _pointerDistance() {
+    final p = _pointers.values.take(2).toList();
+    return (p[0] - p[1]).distance;
+  }
+
+  void _onPointerDown(PointerDownEvent e) {
+    _pointers[e.pointer] = e.position;
+    if (_pointers.length == 2) {
+      setState(() {
+        _pinchStartDist = _pointerDistance();
+        _pinchStartScale = _textScale;
+      });
+    }
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    if (!_pointers.containsKey(e.pointer)) return;
+    _pointers[e.pointer] = e.position;
+    final start = _pinchStartDist;
+    if (start == null || start < 1 || _pointers.length < 2) return;
+    final raw = _pinchStartScale * _pointerDistance() / start;
+    final next =
+        ((raw.clamp(_minTextScale, _maxTextScale)) * 20).roundToDouble() / 20;
+    if (next != _textScale) setState(() => _textScale = next);
+  }
+
+  void _onPointerEnd(PointerEvent e) {
+    _pointers.remove(e.pointer);
+    if (_pinching && _pointers.length < 2) {
+      setState(() => _pinchStartDist = null);
+      _saveTextScale();
+    }
+  }
 
   static String _progressKeySingle(String sdNo) =>
       'pick_list_progress_${sdNo.replaceAll(RegExp(r'[^\w\-]'), '_')}';
@@ -3255,7 +3309,7 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
       final isNotFound = _notFound.contains(itemKey);
       content = GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragEnd: _zoomed
+        onHorizontalDragEnd: _pinching
             ? null
             : (details) {
                 final v = details.primaryVelocity ?? 0;
@@ -3266,12 +3320,27 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: PageView.builder(
+              child: Listener(
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerEnd,
+                onPointerCancel: _onPointerEnd,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    MediaQuery(
+                      data: MediaQuery.of(context).copyWith(
+                        textScaler: TextScaler.linear(
+                          MediaQuery.textScalerOf(context).scale(14) /
+                              14 *
+                              _textScale,
+                        ),
+                      ),
+                      child: PageView.builder(
                 controller: _pageController,
                 itemCount: filtered.length,
-                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
+                physics: _pinching ? const NeverScrollableScrollPhysics() : null,
                 onPageChanged: (index) {
-                  _resetZoom();
                   setState(() => _currentVisibleIndex = index);
                 },
                 itemBuilder: (context, index) {
@@ -3293,9 +3362,9 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                         return (rk != null && rk.isNotEmpty) ? rk : it.id;
                       })(),
                   ];
-                  final card = SingleChildScrollView(
+                  return SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 4),
-                      physics: _zoomed
+                      physics: _pinching
                           ? const NeverScrollableScrollPhysics()
                           : null,
                       child: _PickCard(
@@ -3317,32 +3386,25 @@ class _PickListItemsScreenState extends State<PickListItemsScreen> {
                             : null,
                       ),
                   );
-                  if (index != _currentVisibleIndex) {
-                    return SizedBox.expand(child: card);
-                  }
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      InteractiveViewer(
-                        transformationController: _zoom,
-                        minScale: 1,
-                        maxScale: 3,
-                        panEnabled: _zoomed,
-                        child: card,
+                },
                       ),
-                      if (_zoomed)
-                        Positioned(
-                          right: 8,
-                          top: 8,
-                          child: FilledButton.tonalIcon(
-                            onPressed: _resetZoom,
-                            icon: const Icon(Icons.zoom_out_map, size: 18),
-                            label: const Text('還原'),
+                    ),
+                    if (_pinching || _textScale != 1.0)
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: FilledButton.tonalIcon(
+                          onPressed: _pinching ? null : _resetTextScale,
+                          icon: const Icon(Icons.format_size, size: 18),
+                          label: Text(
+                            _pinching
+                                ? '字級 ${(_textScale * 100).round()}%'
+                                : '還原字級',
                           ),
                         ),
-                    ],
-                  );
-                },
+                      ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 12),
