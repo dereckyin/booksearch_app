@@ -3,9 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-/// 書籍只讀 EAN-13：書上常有多個條碼或 QR Code，限定格式避免讀錯。
+/// 書／商品：EAN-13、UPC、EAN-8，加上讀冊物流標籤（18 碼 Code 128）；不讀 QR Code。
 /// 相機辨識不支援 +2／+5 附加碼，只回傳 13 碼，後端以前綴比對物流條碼。
-const kBookBarcodeFormats = [BarcodeFormat.ean13];
+const kBookBarcodeFormats = [
+  BarcodeFormat.ean13,
+  BarcodeFormat.ean8,
+  BarcodeFormat.upcA,
+  BarcodeFormat.upcE,
+  BarcodeFormat.code128,
+];
 
 /// 儲位標籤、單號（FC／CA／CB）用一維碼
 const kCodeBarcodeFormats = [
@@ -189,7 +195,7 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
             right: 0,
             bottom: 48,
             child: Text(
-              _isBook ? '將書籍 EAN-13 條碼對準框內' : '將儲位或單號條碼對準框內',
+              _isBook ? '將書籍條碼或讀冊物流標籤對準框內' : '將儲位或單號條碼對準框內',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
