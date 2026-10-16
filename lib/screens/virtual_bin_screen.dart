@@ -105,7 +105,7 @@ class _VirtualBinScreenState extends State<VirtualBinScreen> {
       _refocusFc();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('請掃描揀貨單號（FC…）')),
+        SnackBar(content: Text('請掃描揀貨單號（FC…）\n讀到：${raw.trim()}')),
       );
       return;
     }
