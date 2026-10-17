@@ -6,10 +6,12 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 final _digitsOnly = RegExp(r'^[0-9]+$');
 
-/// EAN／UPC 與純數字 Code 128 用 ML Kit 的結果。
-/// Code 39 不採用：這顆引擎會把同一組線條解成字母
-/// （8880632997502 → BBBGJFRSD7502）。
+/// EAN／UPC、純數字 Code 128，以及純數字 Code 39 用 ML Kit 的結果。
+/// Code 39 若被讀成字母（8880632997502 → BBBGJFRSD7502）不採用，
+/// 改把同一張畫面交給 ZXing。數字讀對的 Code 39 直接收，
+/// 例如商品標 55667100549，否則物流掃描會一直等重解、畫面沒有反應。
 String? trustedMlKitBookBarcode(List<Barcode> barcodes) {
+  String? code39Digits;
   for (final barcode in barcodes) {
     final value = barcode.rawValue?.trim() ?? '';
     if (!_digitsOnly.hasMatch(value)) continue;
@@ -29,11 +31,14 @@ String? trustedMlKitBookBarcode(List<Barcode> barcodes) {
       case BarcodeFormat.code128:
         if (value.length >= 6) return value;
         break;
+      case BarcodeFormat.code39:
+        if (value.length >= 6) code39Digits ??= value;
+        break;
       default:
         break;
     }
   }
-  return null;
+  return code39Digits;
 }
 
 const _bookZxingFormats =

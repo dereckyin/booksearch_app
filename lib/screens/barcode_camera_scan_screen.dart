@@ -10,8 +10,8 @@ import '../utils/book_barcode_decode.dart';
 /// 以及印成 Code 39 的商品碼（底下數字像 EAN，線條不是 EAN）。不讀 QR、Code 93。
 /// 相機辨識不支援 +2／+5 附加碼，只回傳 13 碼，後端以前綴比對物流條碼。
 ///
-/// ML Kit 的 Code 39 會把 8880632997502 讀成 BBBGJFRSD7502，
-/// 那種結果不採用，改把同一張畫面交給 ZXing。
+/// ML Kit 的 Code 39 若讀成字母（8880632997502 → BBBGJFRSD7502）不採用，
+/// 改把同一張畫面交給 ZXing。純數字的 Code 39 直接收。
 const kBookBarcodeFormats = [
   BarcodeFormat.ean13,
   BarcodeFormat.ean8,

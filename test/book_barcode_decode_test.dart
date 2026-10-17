@@ -27,4 +27,23 @@ void main() {
       isNull,
     );
   });
+
+  test('ML Kit numeric Code 39 is trusted', () {
+    expect(
+      trustedMlKitBookBarcode([
+        const Barcode(format: BarcodeFormat.code39, rawValue: '55667100549'),
+      ]),
+      '55667100549',
+    );
+  });
+
+  test('retail code wins over a numeric Code 39 in the same frame', () {
+    expect(
+      trustedMlKitBookBarcode([
+        const Barcode(format: BarcodeFormat.code39, rawValue: '55667100549'),
+        const Barcode(format: BarcodeFormat.ean13, rawValue: '9789573288881'),
+      ]),
+      '9789573288881',
+    );
+  });
 }
