@@ -6,6 +6,16 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 final _digitsOnly = RegExp(r'^[0-9]+$');
 
+/// (30)036133 這種寫法。括號裡是 GS1 應用識別碼，條碼內容沒有括號。
+final _gs1Hri = RegExp(r'^(?:\(\d{2,4}\)[0-9]+)+$');
+
+/// 給人看的 GS1 寫法改回條碼裡的數字。(30)036133 → 30036133。
+String logisticsBarcodeText(String raw) {
+  final value = raw.trim();
+  if (!_gs1Hri.hasMatch(value)) return value;
+  return value.replaceAll(RegExp(r'[()]'), '');
+}
+
 /// EAN／UPC、純數字 Code 128，以及純數字 Code 39 用 ML Kit 的結果。
 /// Code 39 若被讀成字母（8880632997502 → BBBGJFRSD7502）不採用，
 /// 改把同一張畫面交給 ZXing。數字讀對的 Code 39 直接收，
@@ -13,7 +23,7 @@ final _digitsOnly = RegExp(r'^[0-9]+$');
 String? trustedMlKitBookBarcode(List<Barcode> barcodes) {
   String? code39Digits;
   for (final barcode in barcodes) {
-    final value = barcode.rawValue?.trim() ?? '';
+    final value = logisticsBarcodeText(barcode.rawValue ?? '');
     if (!_digitsOnly.hasMatch(value)) continue;
     switch (barcode.format) {
       case BarcodeFormat.ean13:
@@ -93,14 +103,14 @@ String? _readBookBarcode(
 String? _pickZxing(List<Code> codes) {
   final valid = <Code>[];
   for (final code in codes) {
-    final text = code.text?.trim() ?? '';
+    final text = logisticsBarcodeText(code.text ?? '');
     if (!code.isValid || text.isEmpty) continue;
     valid.add(code);
   }
   if (valid.isEmpty) return null;
 
   for (final code in valid) {
-    final text = code.text!.trim();
+    final text = logisticsBarcodeText(code.text ?? '');
     final format = code.format;
     if (!_digitsOnly.hasMatch(text) || format == null) continue;
     if (format == Format.ean13 && text.length == 13) return text;
@@ -113,8 +123,8 @@ String? _pickZxing(List<Code> codes) {
     }
   }
   for (final code in valid) {
-    final text = code.text!.trim();
+    final text = logisticsBarcodeText(code.text ?? '');
     if (_digitsOnly.hasMatch(text)) return text;
   }
-  return valid.first.text!.trim();
+  return logisticsBarcodeText(valid.first.text ?? '');
 }

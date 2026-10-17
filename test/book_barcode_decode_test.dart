@@ -37,6 +37,17 @@ void main() {
     );
   });
 
+  test('GS1-128 human readable form becomes the 8 digits', () {
+    expect(
+      trustedMlKitBookBarcode([
+        const Barcode(format: BarcodeFormat.code128, rawValue: '(30)036133'),
+      ]),
+      '30036133',
+    );
+    expect(logisticsBarcodeText('(30)036133'), '30036133');
+    expect(logisticsBarcodeText('30036133'), '30036133');
+  });
+
   test('retail code wins over a numeric Code 39 in the same frame', () {
     expect(
       trustedMlKitBookBarcode([

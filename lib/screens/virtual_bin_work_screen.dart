@@ -133,8 +133,10 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
         await _kitTts.speakKit(kitLabel);
       }
 
+      // 單一格位完成不跳窗，色板改綠即可，掃槍才能接著刷。
+      // 整批完成仍要問是否回寫 MIS。
       var finishNow = false;
-      if (result.binCompleted || result.batchCompleted) {
+      if (result.batchCompleted) {
         HapticFeedback.heavyImpact();
         finishNow = await _showCompletionDialog(result);
       }
@@ -189,27 +191,24 @@ class _VirtualBinWorkScreenState extends State<VirtualBinWorkScreen> {
 
   /// 回傳 true 表示使用者選擇立即「完成分貨」回寫 MIS。
   Future<bool> _showCompletionDialog(VirtualBinScanResult result) async {
-    final title = result.batchCompleted ? '本批分貨完成' : '格位已完成';
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.green.shade50,
-        title: Text(title, style: TextStyle(color: Colors.green.shade900)),
-        content: Text(
-          result.batchCompleted
-              ? '${result.message}\n\n請按「完成分貨」回寫 MIS。'
-              : result.message,
+        title: Text(
+          '本批分貨完成',
+          style: TextStyle(color: Colors.green.shade900),
         ),
+        content: Text('${result.message}\n\n請按「完成分貨」回寫 MIS。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(result.batchCompleted ? '稍後' : '繼續'),
+            child: const Text('稍後'),
           ),
-          if (result.batchCompleted)
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('完成分貨'),
-            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('完成分貨'),
+          ),
         ],
       ),
     );
