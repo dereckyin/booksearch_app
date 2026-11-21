@@ -130,9 +130,7 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
         _truncated = result.truncated;
         _loading = false;
       });
-      if (result.truncated) {
-        _snack('結果超過 500 筆，請縮小查詢範圍');
-      } else if (result.items.isEmpty) {
+      if (result.items.isEmpty) {
         _snack('查無資料');
       }
     } catch (e) {
@@ -443,9 +441,8 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
             )
           else if (_searched) ...[
             Text(
-              _truncated
-                  ? '結果 ${_groups.length} 個儲位／${_items.length} 筆（已截斷）'
-                  : '結果 ${_groups.length} 個儲位／${_items.length} 筆',
+              '結果 ${_groups.length} 個儲位／${_items.length} 筆'
+              '（共 ${_items.fold<int>(0, (s, e) => s + e.qty)} 本）',
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
