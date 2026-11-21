@@ -30,6 +30,7 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
   final _logcode = TextEditingController();
 
   List<StockLocationItem> _items = [];
+  List<StockLocationGroup> _groups = [];
   bool _truncated = false;
   bool _loading = false;
   bool _searched = false;
@@ -122,8 +123,10 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
         logcode: _logcode.text,
       );
       if (!mounted) return;
+      final groups = StockLocationGroup.groupByRack(result.items);
       setState(() {
         _items = result.items;
+        _groups = groups;
         _truncated = result.truncated;
         _loading = false;
       });
@@ -137,6 +140,7 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
       setState(() {
         _error = e.toString();
         _items = [];
+        _groups = [];
         _truncated = false;
         _loading = false;
       });
@@ -152,10 +156,19 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
       _rkIdTo.clear();
       _logcode.clear();
       _items = [];
+      _groups = [];
       _truncated = false;
       _searched = false;
       _error = null;
     });
+  }
+
+  void _openGroup(StockLocationGroup group) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => StockLocationDetailScreen(group: group),
+      ),
+    );
   }
 
   Widget _rangeRow({
@@ -226,26 +239,94 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
     );
   }
 
-  Widget _resultTile(StockLocationItem item) {
+  Widget _coverThumb(String? url) {
+    const size = 64.0;
+    if (url == null || url.isEmpty) {
+      return Container(
+        width: size,
+        height: size * 1.25,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(Icons.menu_book_outlined, color: Colors.grey.shade500),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image.network(
+        url,
+        width: size,
+        height: size * 1.25,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: size,
+          height: size * 1.25,
+          alignment: Alignment.center,
+          color: Colors.grey.shade200,
+          child: Icon(Icons.broken_image_outlined, color: Colors.grey.shade500),
+        ),
+      ),
+    );
+  }
+
+  Widget _groupTile(StockLocationGroup group) {
+    final accent = Theme.of(context).colorScheme.primary;
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        title: Text(
-          item.prodNm.isEmpty ? '（無商品名稱）' : item.prodNm,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          '儲位 ${item.rkId}　條碼 ${item.logcode}',
-          style: const TextStyle(fontFamily: 'monospace'),
-        ),
-        trailing: Text(
-          '${item.qty}',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: Theme.of(context).colorScheme.primary,
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 5),
+      child: InkWell(
+        onTap: () => _openGroup(group),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      group.rkId,
+                      style: TextStyle(
+                        fontSize: 28,
+                        height: 1.1,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                        color: accent,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '(${group.totalQty} 本)'
+                      '${group.lineCount > 1 ? '　${group.lineCount} 筆條碼' : ''}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 10),
+              _coverThumb(group.coverUrl),
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right, color: Colors.grey.shade500),
+            ],
+          ),
         ),
       ),
     );
@@ -260,13 +341,13 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
           Text('庫存查詢', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
           Text(
-            '對齊 MIS 商品儲位庫存明細（物流倉）',
+            '對齊 MIS 商品儲位庫存明細（物流倉）\n結果以儲位為主排序；點進去看該儲位明細',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
           _rangeRow(
             label: '通道別',
-            hint: 'A01',
+            hint: '',
             from: _rkRowFrom,
             to: _rkRowTo,
             maxLen: 3,
@@ -274,7 +355,7 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
           const SizedBox(height: 12),
           _rangeRow(
             label: '儲位代碼',
-            hint: 'A01A11',
+            hint: '',
             from: _rkIdFrom,
             to: _rkIdTo,
             maxLen: 6,
@@ -363,20 +444,121 @@ class _StockQueryScreenState extends State<StockQueryScreen> {
           else if (_searched) ...[
             Text(
               _truncated
-                  ? '結果 ${_items.length} 筆（已截斷，請縮小範圍）'
-                  : '結果 ${_items.length} 筆',
+                  ? '結果 ${_groups.length} 個儲位／${_items.length} 筆（已截斷）'
+                  : '結果 ${_groups.length} 個儲位／${_items.length} 筆',
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
-            if (_items.isEmpty)
+            if (_groups.isEmpty)
               const ListTile(
                 dense: true,
                 title: Text('查無資料'),
               )
             else
-              ..._items.map(_resultTile),
+              ..._groups.map(_groupTile),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// 單一儲位的條碼／數量明細
+class StockLocationDetailScreen extends StatelessWidget {
+  const StockLocationDetailScreen({super.key, required this.group});
+
+  final StockLocationGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Scaffold(
+      appBar: AppBar(title: const Text('儲位明細')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          Text(
+            group.rkId,
+            style: TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.w800,
+              color: accent,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '共 ${group.totalQty} 本／${group.lineCount} 筆條碼',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 16),
+          for (final item in group.items)
+            Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                leading: _DetailCover(url: item.coverUrl),
+                title: Text(
+                  item.prodNm.isEmpty ? '（無商品名稱）' : item.prodNm,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  '條碼 ${item.logcode}',
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+                trailing: Text(
+                  '${item.qty} 本',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailCover extends StatelessWidget {
+  const _DetailCover({this.url});
+
+  final String? url;
+
+  @override
+  Widget build(BuildContext context) {
+    const w = 44.0;
+    const h = 56.0;
+    if (url == null || url!.isEmpty) {
+      return Container(
+        width: w,
+        height: h,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Icon(Icons.menu_book_outlined, size: 20, color: Colors.grey.shade500),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.network(
+        url!,
+        width: w,
+        height: h,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: w,
+          height: h,
+          color: Colors.grey.shade200,
+          alignment: Alignment.center,
+          child: Icon(Icons.broken_image_outlined, size: 18, color: Colors.grey.shade500),
+        ),
       ),
     );
   }
